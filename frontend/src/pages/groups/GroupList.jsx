@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Button, Modal, Form, Input, Space, Popconfirm, Tag, message } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Form, Input, Space, Popconfirm, Tag, message, Select } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../../api/adminApi';
 import dayjs from 'dayjs';
@@ -9,6 +9,8 @@ import dayjs from 'dayjs';
 export default function GroupList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
+  const [searchText, setSearchText] = useState('');
+  const [filterSemester, setFilterSemester] = useState(null);
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -17,6 +19,21 @@ export default function GroupList() {
     queryKey: ['groups'],
     queryFn: () => adminApi.getGroups().then((res) => res.data),
   });
+
+  const filteredGroups = useMemo(() => {
+    return groups.filter((g) => {
+      const matchSearch = !searchText ||
+        g.name?.toLowerCase().includes(searchText.toLowerCase()) ||
+        g.description?.toLowerCase().includes(searchText.toLowerCase());
+      const matchSemester = !filterSemester || g.semester === filterSemester;
+      return matchSearch && matchSemester;
+    });
+  }, [groups, searchText, filterSemester]);
+
+  const semesters = useMemo(() => {
+    const set = new Set(groups.map((g) => g.semester).filter(Boolean));
+    return [...set].map((s) => ({ value: s, label: s }));
+  }, [groups]);
 
   const createMutation = useMutation({
     mutationFn: (data) => adminApi.createGroup(data),
@@ -49,7 +66,7 @@ export default function GroupList() {
   };
 
   const columns = [
-    { title: 'Tên nhóm', dataIndex: 'name', key: 'name' },
+    { title: 'Tên nhóm', dataIndex: 'name', key: 'name', sorter: (a, b) => a.name.localeCompare(b.name) },
     { title: 'Mô tả', dataIndex: 'description', key: 'description', ellipsis: true },
     { title: 'Học kỳ', dataIndex: 'semester', key: 'semester' },
     {
@@ -59,6 +76,7 @@ export default function GroupList() {
     {
       title: 'Ngày tạo', dataIndex: 'created_at', key: 'created_at',
       render: (val) => val ? dayjs(val).format('DD/MM/YYYY') : '-',
+      sorter: (a, b) => new Date(a.created_at) - new Date(b.created_at),
     },
     {
       title: 'Thao tác', key: 'actions',
@@ -81,7 +99,26 @@ export default function GroupList() {
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Tạo nhóm</Button>
       </div>
 
-      <Table dataSource={groups} columns={columns} rowKey="id" loading={isLoading} />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input
+          placeholder="Tìm kiếm nhóm..."
+          prefix={<SearchOutlined />}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          style={{ width: 260 }}
+          allowClear
+        />
+        <Select
+          placeholder="Lọc theo học kỳ"
+          options={semesters}
+          value={filterSemester}
+          onChange={setFilterSemester}
+          allowClear
+          style={{ width: 180 }}
+        />
+      </Space>
+
+      <Table dataSource={filteredGroups} columns={columns} rowKey="id" loading={isLoading} />
 
       <Modal
         title={editingGroup ? 'Chỉnh sửa nhóm' : 'Tạo nhóm mới'}

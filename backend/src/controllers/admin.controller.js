@@ -5,10 +5,42 @@ const { JiraConfig } = require('../models/jiraConfig.model');
 const { GithubConfig } = require('../models/githubConfig.model');
 const CryptoJS = require('crypto-js');
 const axios = require('axios');
+const { Op } = require('sequelize');
 
 const AES_KEY = process.env.AES_KEY || 'project_management_aes_secret_key!!';
 const encrypt = (text) => CryptoJS.AES.encrypt(text, AES_KEY).toString();
 const decrypt = (cipher) => CryptoJS.AES.decrypt(cipher, AES_KEY).toString(CryptoJS.enc.Utf8);
+
+// ===== DASHBOARD STATS =====
+exports.getStats = async (req, res) => {
+  try {
+    const totalGroups = await Group.count();
+    const totalLecturers = await User.count({ where: { role: 'LECTURER' } });
+    const totalMembers = await GroupMember.count();
+    const totalUsers = await User.count();
+    res.json({ totalGroups, totalLecturers, totalMembers, totalUsers });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
+
+// ===== SEARCH USERS =====
+exports.searchUsers = async (req, res) => {
+  try {
+    const { q } = req.query;
+    const where = {};
+    if (q) {
+      where[Op.or] = [
+        { email: { [Op.like]: `%${q}%` } },
+        { full_name: { [Op.like]: `%${q}%` } },
+      ];
+    }
+    const users = await User.findAll({
+      where,
+      attributes: ['id', 'email', 'full_name', 'role', 'is_active'],
+      limit: 50,
+    });
+    res.json(users);
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
 
 // ===== GROUPS =====
 exports.getGroups = async (req, res) => {
@@ -172,4 +204,41 @@ exports.testGithub = async (req, res) => {
   } catch (err) {
     res.json({ success: false, message: 'GitHub connection failed: ' + (err.response?.data?.message || err.message) });
   }
+};
+
+// ===== GET SINGLE GROUP =====
+exports.getGroup = async (req, res) => {
+  try {
+    const group = await Group.findByPk(req.params.id);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+    res.json(group);
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
+
+// ===== GET JIRA CONFIG =====
+exports.getJiraConfig = async (req, res) => {
+  try {
+    const config = await JiraConfig.findOne({ where: { group_id: req.params.id } });
+    if (!config) return res.json(null);
+    res.json({
+      jira_domain: config.jira_domain,
+      project_key: config.project_key,
+      is_active: config.is_active,
+      last_synced_at: config.last_synced_at,
+    });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
+
+// ===== GET GITHUB CONFIG =====
+exports.getGithubConfig = async (req, res) => {
+  try {
+    const config = await GithubConfig.findOne({ where: { group_id: req.params.id } });
+    if (!config) return res.json(null);
+    res.json({
+      repo_owner: config.repo_owner,
+      repo_name: config.repo_name,
+      is_active: config.is_active,
+      last_synced_at: config.last_synced_at,
+    });
+  } catch (err) { res.status(500).json({ message: err.message }); }
 };
