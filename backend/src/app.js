@@ -22,8 +22,6 @@ const initApp = async () => {
   startJiraSyncJob();
 };
 
-initApp().catch(err => console.error('App init error:', err.message));
-
 app.get('/', (req, res) => {
   res.json({ message: 'SWP391 Backend API is running!' });
 });
@@ -31,8 +29,15 @@ app.get('/', (req, res) => {
 app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/sync', require('./routes/sync.routes'));
+app.use('/api', require('./routes/tasks.routes'));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+initApp()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('App init error:', err.message);
+  });

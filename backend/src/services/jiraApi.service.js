@@ -79,6 +79,40 @@ class JiraApiService {
     });
     return res.data.values || [];
   }
+
+  /**
+   * Lấy transitions khả dụng của issue
+   */
+  async fetchTransitions(issueKey) {
+    const res = await axios.get(`${this.baseUrl}/rest/api/3/issue/${issueKey}/transitions`, {
+      headers: this.headers
+    });
+    return res.data.transitions || [];
+  }
+
+  /**
+   * Chuyển trạng thái issue sang targetStatus theo tên transition gần khớp nhất
+   */
+  async transitionIssueToStatus(issueKey, targetStatus) {
+    const transitions = await this.fetchTransitions(issueKey);
+    const normalize = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const wanted = normalize(targetStatus);
+
+    const matched = transitions.find((transition) => normalize(transition.name) === wanted)
+      || transitions.find((transition) => normalize(transition.to?.name) === wanted);
+
+    if (!matched) {
+      throw new Error(`Không tìm thấy Jira transition phù hợp cho trạng thái "${targetStatus}"`);
+    }
+
+    await axios.post(
+      `${this.baseUrl}/rest/api/3/issue/${issueKey}/transitions`,
+      { transition: { id: matched.id } },
+      { headers: this.headers }
+    );
+
+    return matched;
+  }
 }
 
 module.exports = JiraApiService;
