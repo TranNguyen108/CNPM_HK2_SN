@@ -8,6 +8,8 @@ import Dashboard from './pages/Dashboard';
 import GroupList from './pages/groups/GroupList';
 import GroupDetail from './pages/groups/GroupDetail';
 import LecturerList from './pages/lecturers/LecturerList';
+import KanbanBoard from './pages/leader/KanbanBoard';
+import LeaderDashboard from './pages/leader/LeaderDashboard';
 
 export default function App() {
   return (
@@ -30,10 +32,28 @@ export default function App() {
           </Route>
         </Route>
 
-        {/* General protected routes */}
-        <Route element={<ProtectedRoute />}>
+        {/* Leader routes */}
+        <Route element={<ProtectedRoute allowedRoles={['LEADER']} />}>
+          <Route element={<AdminLayout />}>
+            <Route path="/dashboard" element={<LeaderDashboard />} />
+            <Route path="/boards" element={<LeaderDashboard />} />
+            <Route path="/board/:groupId" element={<KanbanBoard />} />
+          </Route>
+        </Route>
+
+        {/* Member routes */}
+        <Route element={<ProtectedRoute allowedRoles={['MEMBER', 'LECTURER']} />}>
           <Route element={<AdminLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/boards" element={<Dashboard />} />
+            <Route path="/board/:groupId" element={<KanbanBoard />} />
+          </Route>
+        </Route>
+
+        {/* Admin can also access boards */}
+        <Route element={<ProtectedRoute allowedRoles={['ADMIN']} />}>
+          <Route element={<AdminLayout />}>
+            <Route path="/board/:groupId" element={<KanbanBoard />} />
           </Route>
         </Route>
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, Table, Button, Modal, Form, Input, Select, Space, Popconfirm, Tag, message, Alert, Spin, Descriptions } from 'antd';
-import { PlusOutlined, DeleteOutlined, ArrowLeftOutlined, LinkOutlined, GithubOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, ArrowLeftOutlined, LinkOutlined, GithubOutlined, SearchOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../../api/adminApi';
 import dayjs from 'dayjs';
@@ -281,6 +281,14 @@ export default function GroupDetail() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/admin/groups')}>Quay lại</Button>
         <h2 style={{ margin: 0 }}>{group?.name || 'Chi tiết nhóm'}</h2>
         {group?.semester && <Tag>{group.semester}</Tag>}
+        <Button
+          type="primary"
+          ghost
+          icon={<AppstoreOutlined />}
+          onClick={() => navigate(`/board/${id}`)}
+        >
+          Mở Kanban Board
+        </Button>
       </Space>
       {group?.description && (
         <p style={{ color: '#666', marginBottom: 16 }}>{group.description}</p>
