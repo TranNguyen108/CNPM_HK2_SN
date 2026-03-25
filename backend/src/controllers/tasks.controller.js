@@ -1,8 +1,9 @@
-const { Op } = require('sequelize');
+const { Op, fn, col, literal } = require('sequelize');
 const { Task } = require('../models/task.model');
 const { GroupMember } = require('../models/groupMember.model');
 const { User } = require('../models/user.model');
 const { JiraConfig } = require('../models/jiraConfig.model');
+const { sequelize } = require('../config/database');
 const JiraApiService = require('../services/jiraApi.service');
 
 const DEFAULT_PAGE = 1;
@@ -26,6 +27,139 @@ const categorizeStatus = (status) => {
   if (['done', 'closed', 'resolved', 'complete', 'completed'].includes(normalized)) return 'done';
 
   return 'other';
+};
+
+const DONE_STATUSES = ['done', 'closed', 'resolved', 'complete', 'completed'];
+const IN_PROGRESS_STATUSES = ['in progress', 'in-progress', 'doing', 'review', 'code review', 'testing', 'qa'];
+
+const normalizeDateValue = (value) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const toDateKey = (value) => {
+  const date = normalizeDateValue(value);
+  if (!date) return null;
+  return date.toISOString().slice(0, 10);
+};
+
+const getTodayDateKey = () => new Date().toISOString().slice(0, 10);
+
+const enumerateDates = (startDate, endDate) => {
+  const start = normalizeDateValue(startDate);
+  const end = normalizeDateValue(endDate);
+  if (!start || !end || start > end) return [];
+
+  const dates = [];
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+  const target = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+
+  while (cursor <= target) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return dates;
+};
+
+const getIntegerDaysDiff = (targetDate) => {
+  const target = normalizeDateValue(targetDate);
+  if (!target) return null;
+
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const targetUtc = Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate());
+
+  return Math.ceil((targetUtc - todayUtc) / (1000 * 60 * 60 * 24));
+};
+
+const pickLatestSprintName = async (groupId) => {
+  const latestTaskWithSprint = await Task.findOne({
+    where: {
+      group_id: groupId,
+      sprint: { [Op.ne]: null }
+    },
+    attributes: ['sprint'],
+    order: [['updated_at', 'DESC'], ['created_at', 'DESC']]
+  });
+
+  const sprintName = latestTaskWithSprint?.sprint;
+  return String(sprintName || '').trim() || null;
+};
+
+const getSprintMetaFromJira = async (groupId, requestedSprintName) => {
+  const config = await JiraConfig.findOne({
+    where: { group_id: groupId, is_active: 1 }
+  });
+
+  if (!config?.project_key) return null;
+
+  const jira = new JiraApiService(config);
+  const boards = await jira.fetchBoards(config.project_key);
+
+  for (const board of boards) {
+    const sprints = await jira.fetchSprints(board.id);
+    const normalizedRequested = String(requestedSprintName || '').trim().toLowerCase();
+
+    const matchedSprint = normalizedRequested
+      ? sprints.find((item) => String(item.name || '').trim().toLowerCase() === normalizedRequested)
+      : sprints.find((item) => item.state === 'active');
+
+    if (matchedSprint) {
+      return {
+        boardId: board.id,
+        sprintId: matchedSprint.id,
+        sprintName: matchedSprint.name || requestedSprintName || null,
+        state: matchedSprint.state || null,
+        startDate: normalizeDateValue(matchedSprint.startDate),
+        endDate: normalizeDateValue(matchedSprint.endDate),
+        completeDate: normalizeDateValue(matchedSprint.completeDate)
+      };
+    }
+  }
+
+  return null;
+};
+
+const resolveSprintContext = async (groupId, requestedSprintName) => {
+  const sprintName = String(requestedSprintName || '').trim() || await pickLatestSprintName(groupId);
+  if (!sprintName) return null;
+
+  const taskDateBounds = await Task.findOne({
+    where: { group_id: groupId, sprint: sprintName },
+    attributes: [
+      [fn('MIN', col('created_at')), 'minCreatedAt'],
+      [fn('MAX', col('updated_at')), 'maxUpdatedAt'],
+      [fn('MAX', col('due_date')), 'maxDueDate']
+    ],
+    raw: true
+  });
+
+  const localStartDate = normalizeDateValue(taskDateBounds?.minCreatedAt);
+  const localEndDate = normalizeDateValue(taskDateBounds?.maxDueDate)
+    || normalizeDateValue(taskDateBounds?.maxUpdatedAt);
+
+  let jiraMeta = null;
+  if (!localStartDate || !localEndDate) {
+    try {
+      jiraMeta = await getSprintMetaFromJira(groupId, sprintName);
+    } catch {
+      jiraMeta = null;
+    }
+  }
+
+  const startDate = localStartDate || jiraMeta?.startDate || normalizeDateValue(new Date());
+  const endDate = localEndDate || jiraMeta?.endDate || startDate;
+
+  return {
+    sprintName,
+    state: jiraMeta?.state || null,
+    startDate,
+    endDate,
+    completeDate: jiraMeta?.completeDate || null,
+    source: jiraMeta ? 'jira' : 'task-history'
+  };
 };
 
 const ensureGroupAccess = async (user, groupId) => {
@@ -327,6 +461,233 @@ exports.getGroupSprints = async (req, res) => {
     res.json({
       groupId,
       items: uniqueSprints
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+exports.getGroupSprintBurndown = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    await ensureGroupAccess(req.user, groupId);
+
+    const sprintContext = await resolveSprintContext(groupId, req.query.sprintName);
+    if (!sprintContext) {
+      return res.status(404).json({ message: 'Không tìm thấy sprint cho nhóm này' });
+    }
+
+    const doneRows = await Task.findAll({
+      where: {
+        group_id: groupId,
+        sprint: sprintContext.sprintName,
+        [Op.and]: [
+          { status: { [Op.ne]: null } },
+          sequelize.where(fn('LOWER', col('status')), { [Op.in]: DONE_STATUSES })
+        ]
+      },
+      attributes: [
+        [fn('DATE', col('updated_at')), 'date'],
+        [fn('COUNT', col('id')), 'doneCount']
+      ],
+      group: [literal('DATE(updated_at)')],
+      order: [[literal('DATE(updated_at)'), 'ASC']],
+      raw: true
+    });
+
+    const doneCountByDate = new Map(
+      doneRows.map((row) => [toDateKey(row.date), Number(row.doneCount) || 0])
+    );
+
+    let cumulativeDone = 0;
+    const burndown = enumerateDates(sprintContext.startDate, sprintContext.endDate).map((date) => {
+      const doneCount = doneCountByDate.get(date) || 0;
+      cumulativeDone += doneCount;
+      return {
+        date,
+        doneCount,
+        cumulativeDone
+      };
+    });
+
+    res.json({
+      groupId,
+      sprint: {
+        name: sprintContext.sprintName,
+        startDate: toDateKey(sprintContext.startDate),
+        endDate: toDateKey(sprintContext.endDate),
+        state: sprintContext.state,
+        source: sprintContext.source
+      },
+      burndown
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+exports.getGroupMemberStats = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    await ensureGroupAccess(req.user, groupId);
+
+    const members = await GroupMember.findAll({
+      where: { group_id: groupId },
+      attributes: ['user_id', 'role_in_group']
+    });
+
+    const memberIds = members.map((item) => item.user_id);
+    if (!memberIds.length) {
+      return res.json({ groupId, items: [] });
+    }
+
+    const users = await User.findAll({
+      where: { id: { [Op.in]: memberIds } },
+      attributes: ['id', 'full_name', 'email', 'avatar'],
+      raw: true
+    });
+
+    const taskStats = await Task.findAll({
+      where: {
+        group_id: groupId,
+        assignee_id: { [Op.in]: memberIds }
+      },
+      attributes: [
+        'assignee_id',
+        [fn('COUNT', col('id')), 'assignedCount'],
+        [fn('SUM', literal(`CASE
+          WHEN LOWER(status) IN (${DONE_STATUSES.map((status) => sequelize.escape(status)).join(', ')})
+          THEN 1 ELSE 0 END`)), 'doneCount'],
+        [fn('SUM', literal(`CASE
+          WHEN LOWER(status) IN (${IN_PROGRESS_STATUSES.map((status) => sequelize.escape(status)).join(', ')})
+          THEN 1 ELSE 0 END`)), 'inProgressCount']
+      ],
+      group: ['assignee_id'],
+      raw: true
+    });
+
+    const taskStatsMap = new Map(
+      taskStats.map((item) => [item.assignee_id, {
+        assignedCount: Number(item.assignedCount) || 0,
+        doneCount: Number(item.doneCount) || 0,
+        inProgressCount: Number(item.inProgressCount) || 0
+      }])
+    );
+    const usersMap = new Map(users.map((item) => [item.id, item]));
+
+    const items = members.map((member) => {
+      const user = usersMap.get(member.user_id);
+      const stats = taskStatsMap.get(member.user_id) || {
+        assignedCount: 0,
+        doneCount: 0,
+        inProgressCount: 0
+      };
+
+      return {
+        userId: member.user_id,
+        fullName: user?.full_name || null,
+        email: user?.email || null,
+        avatar: user?.avatar || null,
+        roleInGroup: member.role_in_group,
+        assignedCount: stats.assignedCount,
+        doneCount: stats.doneCount,
+        inProgressCount: stats.inProgressCount
+      };
+    });
+
+    res.json({ groupId, items });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+exports.getGroupOverviewStats = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    await ensureGroupAccess(req.user, groupId);
+
+    const overview = await Task.findOne({
+      where: { group_id: groupId },
+      attributes: [
+        [fn('COUNT', col('id')), 'totalTasks'],
+        [fn('SUM', literal(`CASE
+          WHEN LOWER(status) IN (${DONE_STATUSES.map((status) => sequelize.escape(status)).join(', ')})
+          THEN 1 ELSE 0 END`)), 'completedTasks']
+      ],
+      raw: true
+    });
+
+    const totalTasks = Number(overview?.totalTasks) || 0;
+    const completedTasks = Number(overview?.completedTasks) || 0;
+    const completionRate = totalTasks ? Number(((completedTasks / totalTasks) * 100).toFixed(2)) : 0;
+
+    const sprintContext = await resolveSprintContext(groupId, req.query.sprintName);
+    const sprintDaysLeft = sprintContext?.endDate ? Math.max(getIntegerDaysDiff(sprintContext.endDate), 0) : null;
+
+    res.json({
+      groupId,
+      totalTasks,
+      completedTasks,
+      completionRate,
+      sprint: sprintContext ? {
+        name: sprintContext.sprintName,
+        startDate: toDateKey(sprintContext.startDate),
+        endDate: toDateKey(sprintContext.endDate),
+        daysLeft: sprintDaysLeft,
+        state: sprintContext.state,
+        source: sprintContext.source
+      } : null
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+exports.getPersonalStats = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (req.user.role !== 'ADMIN' && req.user.id !== userId) {
+      return res.status(403).json({ message: 'Bạn không có quyền xem thống kê cá nhân của user này' });
+    }
+
+    const where = { assignee_id: userId };
+    if (req.query.groupId) {
+      await ensureGroupAccess(req.user, req.query.groupId);
+      where.group_id = req.query.groupId;
+    }
+
+    const personal = await Task.findOne({
+      where,
+      attributes: [
+        [fn('COUNT', col('id')), 'assignedCount'],
+        [fn('SUM', literal(`CASE
+          WHEN LOWER(status) IN (${DONE_STATUSES.map((status) => sequelize.escape(status)).join(', ')})
+          THEN 1 ELSE 0 END`)), 'doneCount'],
+        [fn('SUM', literal(`CASE
+          WHEN LOWER(status) IN (${IN_PROGRESS_STATUSES.map((status) => sequelize.escape(status)).join(', ')})
+          THEN 1 ELSE 0 END`)), 'inProgressCount'],
+        [fn('SUM', literal(`CASE
+          WHEN due_date IS NOT NULL
+          AND due_date < ${sequelize.escape(getTodayDateKey())}
+          AND LOWER(COALESCE(status, '')) NOT IN (${DONE_STATUSES.map((status) => sequelize.escape(status)).join(', ')})
+          THEN 1 ELSE 0 END`)), 'overdueCount']
+      ],
+      raw: true
+    });
+
+    const assignedCount = Number(personal?.assignedCount) || 0;
+    const doneCount = Number(personal?.doneCount) || 0;
+    const inProgressCount = Number(personal?.inProgressCount) || 0;
+    const overdueCount = Number(personal?.overdueCount) || 0;
+
+    res.json({
+      userId,
+      groupId: req.query.groupId || null,
+      assignedCount,
+      doneCount,
+      inProgressCount,
+      overdueCount,
+      completionRate: assignedCount ? Number(((doneCount / assignedCount) * 100).toFixed(2)) : 0
     });
   } catch (err) {
     res.status(err.statusCode || 500).json({ message: err.message });
