@@ -21,6 +21,9 @@ export const tasksApi = {
 
   // List unique sprint names for a group
   getSprints: (groupId) => axiosClient.get(`/sprints/${groupId}`),
+
+  // All groups the current user is a member of (any role)
+  getMyGroups: () => axiosClient.get('/my-groups'),
 };
 
 export const syncApi = {
@@ -32,4 +35,16 @@ export const syncApi = {
 
   // Get all tasks for a group via sync endpoint
   getGroupTasks: (groupId) => axiosClient.get(`/sync/tasks/${groupId}`),
+};
+
+export const statsApi = {
+  // Sprint burndown data for a group (?sprintName)
+  getSprintBurndown: (groupId, sprintName) =>
+    axiosClient.get(`/stats/group/${groupId}/sprint`, { params: sprintName ? { sprintName } : {} }),
+
+  // Per-member task stats (assigned/done/in-progress)
+  getMemberStats: (groupId) => axiosClient.get(`/stats/group/${groupId}/members`),
+
+  // Group overview: completion rate, sprint days left
+  getGroupOverview: (groupId) => axiosClient.get(`/stats/group/${groupId}/overview`),
 };

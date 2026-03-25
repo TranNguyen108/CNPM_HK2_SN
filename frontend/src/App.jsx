@@ -10,6 +10,8 @@ import GroupDetail from './pages/groups/GroupDetail';
 import LecturerList from './pages/lecturers/LecturerList';
 import KanbanBoard from './pages/leader/KanbanBoard';
 import LeaderDashboard from './pages/leader/LeaderDashboard';
+import LecturerDashboard from './pages/lecturer/LecturerDashboard';
+import LecturerGroupDetail from './pages/lecturer/LecturerGroupDetail';
 
 export default function App() {
   return (
@@ -41,8 +43,18 @@ export default function App() {
           </Route>
         </Route>
 
+        {/* Lecturer routes (read-only) */}
+        <Route element={<ProtectedRoute allowedRoles={['LECTURER']} />}>
+          <Route element={<AdminLayout />}>
+            <Route path="/lecturer/dashboard" element={<LecturerDashboard />} />
+            <Route path="/lecturer/groups" element={<LecturerDashboard />} />
+            <Route path="/lecturer/groups/:groupId" element={<LecturerGroupDetail />} />
+            <Route path="/lecturer" element={<Navigate to="/lecturer/dashboard" replace />} />
+          </Route>
+        </Route>
+
         {/* Member routes */}
-        <Route element={<ProtectedRoute allowedRoles={['MEMBER', 'LECTURER']} />}>
+        <Route element={<ProtectedRoute allowedRoles={['MEMBER']} />}>
           <Route element={<AdminLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/boards" element={<Dashboard />} />

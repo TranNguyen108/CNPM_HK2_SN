@@ -25,6 +25,11 @@ const leaderMenuItems = [
   { key: '/boards', icon: <AppstoreOutlined />, label: 'Kanban Boards' },
 ];
 
+const lecturerMenuItems = [
+  { key: '/lecturer/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+  { key: '/lecturer/groups', icon: <TeamOutlined />, label: 'Nhóm phụ trách' },
+];
+
 const memberMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
   { key: '/boards', icon: <AppstoreOutlined />, label: 'Boards' },
@@ -46,9 +51,16 @@ export default function AdminLayout() {
       ? adminMenuItems
       : user?.role === 'LEADER'
       ? leaderMenuItems
+      : user?.role === 'LECTURER'
+      ? lecturerMenuItems
       : memberMenuItems;
 
-  const defaultKey = user?.role === 'ADMIN' ? '/admin/dashboard' : '/dashboard';
+  const defaultKey =
+    user?.role === 'ADMIN'
+      ? '/admin/dashboard'
+      : user?.role === 'LECTURER'
+      ? '/lecturer/dashboard'
+      : '/dashboard';
   const selectedKey =
     menuItems.find((item) => location.pathname.startsWith(item.key))?.key || defaultKey;
 
