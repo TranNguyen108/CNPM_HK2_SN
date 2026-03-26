@@ -83,11 +83,17 @@ exports.getLecturers = async (req, res) => {
 exports.createLecturer = async (req, res) => {
   try {
     const bcrypt = require('bcrypt');
-    const { email, fullName, password } = req.body;
+    const { email, fullName, password, githubUsername } = req.body;
     const existing = await User.findOne({ where: { email } });
     if (existing) return res.status(400).json({ message: 'Email already exists' });
     const password_hash = await bcrypt.hash(password || '123456', 10);
-    const lecturer = await User.create({ email, full_name: fullName, password_hash, role: 'LECTURER' });
+    const lecturer = await User.create({
+      email,
+      full_name: fullName,
+      password_hash,
+      role: 'LECTURER',
+      github_username: githubUsername || null
+    });
     res.status(201).json({ message: 'Lecturer created', id: lecturer.id });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
@@ -96,8 +102,30 @@ exports.updateLecturer = async (req, res) => {
   try {
     const user = await User.findOne({ where: { id: req.params.id, role: 'LECTURER' } });
     if (!user) return res.status(404).json({ message: 'Lecturer not found' });
-    await user.update({ full_name: req.body.fullName, email: req.body.email });
+    await user.update({
+      full_name: req.body.fullName,
+      email: req.body.email,
+      github_username: req.body.githubUsername || null
+    });
     res.json({ message: 'Updated successfully' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
+
+exports.updateUserGithubUsername = async (req, res) => {
+  try {
+    const { githubUsername } = req.body;
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    await user.update({ github_username: githubUsername || null });
+    res.json({
+      message: 'GitHub username updated',
+      user: {
+        id: user.id,
+        email: user.email,
+        github_username: user.github_username
+      }
+    });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 

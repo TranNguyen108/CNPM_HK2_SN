@@ -1,5 +1,7 @@
 const { syncGroupJira } = require('../services/jiraSync.service');
+const { syncGroupGithub } = require('../services/githubSync.service');
 const { SyncLog } = require('../models/syncLog.model');
+const { ensureGroupAccess } = require('../utils/groupAccess');
 
 /**
  * POST /api/sync/jira/:groupId
@@ -8,6 +10,7 @@ const { SyncLog } = require('../models/syncLog.model');
 exports.syncJira = async (req, res) => {
   const { groupId } = req.params;
   try {
+    await ensureGroupAccess(req.user, groupId);
     const result = await syncGroupJira(groupId);
     res.json({
       message: 'Đồng bộ Jira hoàn tất',
@@ -31,11 +34,41 @@ exports.syncJira = async (req, res) => {
 };
 
 /**
+ * POST /api/sync/github/:groupId
+ * Trigger đồng bộ GitHub thủ công
+ */
+exports.syncGithub = async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    await ensureGroupAccess(req.user, groupId);
+    const result = await syncGroupGithub(groupId);
+    res.json({
+      message: 'Đồng bộ GitHub hoàn tất',
+      newCommits: result.newCount,
+      updatedCommits: result.updatedCount,
+      totalFetched: result.total
+    });
+  } catch (err) {
+    await SyncLog.create({
+      group_id: groupId,
+      sync_type: 'github',
+      status: 'error',
+      new_count: 0,
+      updated_count: 0,
+      error_message: err.message
+    }).catch(() => {});
+
+    res.status(500).json({ message: 'Đồng bộ GitHub thất bại: ' + err.message });
+  }
+};
+
+/**
  * GET /api/sync/logs/:groupId
  * Xem lịch sử sync (20 bản ghi gần nhất)
  */
 exports.getSyncLogs = async (req, res) => {
   try {
+    await ensureGroupAccess(req.user, req.params.groupId);
     const logs = await SyncLog.findAll({
       where: { group_id: req.params.groupId },
       order: [['synced_at', 'DESC']],
@@ -53,6 +86,7 @@ exports.getSyncLogs = async (req, res) => {
  */
 exports.getTasks = async (req, res) => {
   try {
+    await ensureGroupAccess(req.user, req.params.groupId);
     const { Task } = require('../models/task.model');
     const tasks = await Task.findAll({
       where: { group_id: req.params.groupId },
