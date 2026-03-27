@@ -5,9 +5,16 @@ const roleGuard = require('../middleware/roleGuard');
 
 router.use(auth, roleGuard('ADMIN'));
 
+// Dashboard stats
+router.get('/stats', ctrl.getStats);
+
+// Search users
+router.get('/users/search', ctrl.searchUsers);
+
 // Groups CRUD
 router.get('/groups', ctrl.getGroups);
 router.post('/groups', ctrl.createGroup);
+router.get('/groups/:id', ctrl.getGroup);
 router.put('/groups/:id', ctrl.updateGroup);
 router.delete('/groups/:id', ctrl.deleteGroup);
 
@@ -26,10 +33,12 @@ router.put('/lecturers/:id', ctrl.updateLecturer);
 router.delete('/lecturers/:id', ctrl.deleteLecturer);
 
 // Jira
+router.get('/groups/:id/jira-config', ctrl.getJiraConfig);
 router.post('/groups/:id/jira-config', ctrl.saveJiraConfig);
 router.post('/groups/:id/test-jira', ctrl.testJira);
 
 // GitHub
+router.get('/groups/:id/github-config', ctrl.getGithubConfig);
 router.post('/groups/:id/github-config', ctrl.saveGithubConfig);
 router.post('/groups/:id/test-github', ctrl.testGithub);
 

@@ -8,15 +8,31 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../auth/AuthContext';
 
 const { Header, Sider, Content } = Layout;
 
-const menuItems = [
+const adminMenuItems = [
   { key: '/admin/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
   { key: '/admin/groups', icon: <TeamOutlined />, label: 'Nhóm' },
   { key: '/admin/lecturers', icon: <UserOutlined />, label: 'Giảng viên' },
+];
+
+const leaderMenuItems = [
+  { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+  { key: '/boards', icon: <AppstoreOutlined />, label: 'Kanban Boards' },
+];
+
+const lecturerMenuItems = [
+  { key: '/lecturer/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+  { key: '/lecturer/groups', icon: <TeamOutlined />, label: 'Nhóm phụ trách' },
+];
+
+const memberMenuItems = [
+  { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+  { key: '/boards', icon: <AppstoreOutlined />, label: 'Boards' },
 ];
 
 export default function AdminLayout() {
@@ -30,7 +46,23 @@ export default function AdminLayout() {
     navigate('/login');
   };
 
-  const selectedKey = menuItems.find((item) => location.pathname.startsWith(item.key))?.key || '/admin/dashboard';
+  const menuItems =
+    user?.role === 'ADMIN'
+      ? adminMenuItems
+      : user?.role === 'LEADER'
+      ? leaderMenuItems
+      : user?.role === 'LECTURER'
+      ? lecturerMenuItems
+      : memberMenuItems;
+
+  const defaultKey =
+    user?.role === 'ADMIN'
+      ? '/admin/dashboard'
+      : user?.role === 'LECTURER'
+      ? '/lecturer/dashboard'
+      : '/dashboard';
+  const selectedKey =
+    menuItems.find((item) => location.pathname.startsWith(item.key))?.key || defaultKey;
 
   const dropdownItems = {
     items: [

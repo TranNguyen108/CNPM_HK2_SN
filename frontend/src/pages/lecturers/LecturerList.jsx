@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, Space, Popconfirm, Tag, message } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../../api/adminApi';
 import dayjs from 'dayjs';
@@ -8,6 +8,7 @@ import dayjs from 'dayjs';
 export default function LecturerList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [searchText, setSearchText] = useState('');
   const [form] = Form.useForm();
   const queryClient = useQueryClient();
 
@@ -15,6 +16,14 @@ export default function LecturerList() {
     queryKey: ['lecturers'],
     queryFn: () => adminApi.getLecturers().then((res) => res.data),
   });
+
+  const filteredLecturers = useMemo(() => {
+    if (!searchText) return lecturers;
+    const q = searchText.toLowerCase();
+    return lecturers.filter(
+      (l) => l.full_name?.toLowerCase().includes(q) || l.email?.toLowerCase().includes(q)
+    );
+  }, [lecturers, searchText]);
 
   const createMutation = useMutation({
     mutationFn: (data) => adminApi.createLecturer(data),
@@ -51,7 +60,7 @@ export default function LecturerList() {
   };
 
   const columns = [
-    { title: 'Họ tên', dataIndex: 'full_name', key: 'full_name' },
+    { title: 'Họ tên', dataIndex: 'full_name', key: 'full_name', sorter: (a, b) => a.full_name.localeCompare(b.full_name) },
     { title: 'Email', dataIndex: 'email', key: 'email' },
     {
       title: 'Trạng thái', dataIndex: 'is_active', key: 'is_active',
@@ -60,6 +69,7 @@ export default function LecturerList() {
     {
       title: 'Ngày tạo', dataIndex: 'created_at', key: 'created_at',
       render: (val) => val ? dayjs(val).format('DD/MM/YYYY') : '-',
+      sorter: (a, b) => new Date(a.created_at) - new Date(b.created_at),
     },
     {
       title: 'Thao tác', key: 'actions',
@@ -81,7 +91,16 @@ export default function LecturerList() {
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Tạo giảng viên</Button>
       </div>
 
-      <Table dataSource={lecturers} columns={columns} rowKey="id" loading={isLoading} />
+      <Input
+        placeholder="Tìm kiếm giảng viên..."
+        prefix={<SearchOutlined />}
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        style={{ width: 300, marginBottom: 16 }}
+        allowClear
+      />
+
+      <Table dataSource={filteredLecturers} columns={columns} rowKey="id" loading={isLoading} />
 
       <Modal
         title={editing ? 'Chỉnh sửa giảng viên' : 'Tạo giảng viên mới'}

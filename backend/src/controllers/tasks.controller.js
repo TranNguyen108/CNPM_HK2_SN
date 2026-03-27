@@ -1,6 +1,7 @@
 const { Op, fn, col, literal } = require('sequelize');
 const { Task } = require('../models/task.model');
 const { GroupMember } = require('../models/groupMember.model');
+const { Group } = require('../models/group.model');
 const { User } = require('../models/user.model');
 const { JiraConfig } = require('../models/jiraConfig.model');
 const { sequelize } = require('../config/database');
@@ -689,6 +690,45 @@ exports.getPersonalStats = async (req, res) => {
       overdueCount,
       completionRate: assignedCount ? Number(((doneCount / assignedCount) * 100).toFixed(2)) : 0
     });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+/**
+ * GET /api/my-groups
+ * Returns all groups the current user is a member of (any role_in_group).
+ * Used by LECTURER dashboard to list supervised groups.
+ */
+exports.getMyGroups = async (req, res) => {
+  try {
+    const memberships = await GroupMember.findAll({
+      where: { user_id: req.user.id },
+      attributes: ['group_id', 'role_in_group']
+    });
+
+    if (!memberships.length) {
+      return res.json([]);
+    }
+
+    const groupIds = memberships.map((m) => m.group_id);
+    const groups = await Group.findAll({
+      where: { id: { [Op.in]: groupIds } },
+      order: [['created_at', 'DESC']]
+    });
+
+    const roleMap = new Map(memberships.map((m) => [m.group_id, m.role_in_group]));
+    const result = groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      description: g.description,
+      semester: g.semester,
+      is_active: g.is_active,
+      created_at: g.created_at,
+      role_in_group: roleMap.get(g.id) || null
+    }));
+
+    res.json(result);
   } catch (err) {
     res.status(err.statusCode || 500).json({ message: err.message });
   }

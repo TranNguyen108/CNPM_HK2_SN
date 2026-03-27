@@ -18,7 +18,13 @@ export default function ProtectedRoute({ allowedRoles }) {
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    const fallback =
+      user.role === 'ADMIN'
+        ? '/admin/dashboard'
+        : user.role === 'LECTURER'
+        ? '/lecturer/dashboard'
+        : '/dashboard';
+    return <Navigate to={fallback} replace />;
   }
 
   return <Outlet />;

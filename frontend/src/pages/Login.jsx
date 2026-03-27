@@ -14,7 +14,9 @@ export default function Login() {
     try {
       const data = await login(values.email, values.password);
       message.success('Đăng nhập thành công');
-      navigate(data.role === 'ADMIN' ? '/admin/groups' : '/dashboard');
+      if (data.role === 'ADMIN') navigate('/admin/groups');
+      else if (data.role === 'LECTURER') navigate('/lecturer/dashboard');
+      else navigate('/dashboard');
     } catch (err) {
       message.error(err.response?.data?.message || 'Đăng nhập thất bại');
     } finally {
