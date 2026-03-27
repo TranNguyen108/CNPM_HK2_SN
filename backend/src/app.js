@@ -88,6 +88,10 @@ app.use('/api/sync', require('./routes/sync.routes'));
 app.use('/api', require('./routes/tasks.routes'));
 app.use('/api', require('./routes/commitStats.routes'));
 
+app.use('/api', require('./routes/commitStats.routes'));
+app.use('/api', require('./routes/export.routes'));
+
+
 const PORT = process.env.PORT || 3000;
 initApp()
   .then(() => {
