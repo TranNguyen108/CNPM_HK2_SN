@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -8,14 +8,16 @@ import {
   Tag,
   Typography,
   Space,
-  Spin,
+  Skeleton,
   Statistic,
   Empty,
   List,
   Progress,
   Alert,
   Badge,
+  Tooltip,
   message,
+  Button,
 } from 'antd';
 import {
   ClockCircleOutlined,
@@ -26,11 +28,24 @@ import {
   HistoryOutlined,
   ArrowUpOutlined,
   ArrowDownOutlined,
+  GithubOutlined,
+  TrophyOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip as RechartTooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Cell,
+} from 'recharts';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/vi';
-import { tasksApi, statsApi } from '../../api/tasksApi';
+import { tasksApi, statsApi, githubApi } from '../../api/tasksApi';
 import { useAuth } from '../../auth/AuthContext';
 
 dayjs.extend(relativeTime);
@@ -69,10 +84,99 @@ const COLUMNS = [
   { key: 'done', label: 'Done', icon: <CheckCircleOutlined />, color: '#52c41a' },
 ];
 
+// ─── Commit Heatmap (7-day mini) ───────────────────────────────────────────────
+const HEAT_COLORS = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
+
+const heatColor = (count) => {
+  if (count === 0) return HEAT_COLORS[0];
+  if (count <= 2) return HEAT_COLORS[1];
+  if (count <= 5) return HEAT_COLORS[2];
+  if (count <= 10) return HEAT_COLORS[3];
+  return HEAT_COLORS[4];
+};
+
+const DAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+function MiniCommitHeatmap({ heatmap }) {
+  if (!heatmap?.length) {
+    return (
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description="Chưa có dữ liệu commit"
+        style={{ margin: '12px 0' }}
+      />
+    );
+  }
+  const days = heatmap.slice(-7);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+        {days.map((cell, i) => (
+          <Tooltip
+            key={cell.date}
+            title={`${cell.count} commit${cell.count !== 1 ? 's' : ''} ngày ${cell.date}`}
+            mouseEnterDelay={0}
+          >
+            <div
+              style={{
+                flex: 1,
+                borderRadius: 6,
+                background: heatColor(cell.count),
+                cursor: cell.count > 0 ? 'pointer' : 'default',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '8px 4px',
+                minHeight: 52,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  color: cell.count > 2 ? '#fff' : '#666',
+                  lineHeight: 1,
+                  marginBottom: 4,
+                }}
+              >
+                {DAY_LABELS[i] || dayjs(cell.date).format('ddd')}
+              </div>
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: cell.count > 2 ? '#fff' : '#333',
+                  lineHeight: 1,
+                }}
+              >
+                {cell.count}
+              </div>
+            </div>
+          </Tooltip>
+        ))}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          gap: 4,
+          marginTop: 8,
+        }}
+      >
+        <Text type="secondary" style={{ fontSize: 10 }}>Ít</Text>
+        {HEAT_COLORS.map((c) => (
+          <div key={c} style={{ width: 10, height: 10, borderRadius: 2, background: c }} />
+        ))}
+        <Text type="secondary" style={{ fontSize: 10 }}>Nhiều</Text>
+      </div>
+    </div>
+  );
+}
+
 // ─── Task Card ─────────────────────────────────────────────────────────────────
 function TaskCard({ task, onStatusChange, isUpdating }) {
   const deadline = getDeadlineTag(task.due_date);
-  const cat = categorizeStatus(task.status);
 
   return (
     <Card
@@ -154,29 +258,25 @@ export default function MemberDashboard() {
     queryFn: () => tasksApi.getMyGroups().then((r) => r.data),
   });
 
-  // Auto-select first group
-  useEffect(() => {
-    if (groups.length > 0 && !selectedGroupId) {
-      setSelectedGroupId(groups[0].id);
-    }
-  }, [groups, selectedGroupId]);
+  // Derive effective group: user-selected or first group
+  const effectiveGroupId = selectedGroupId ?? groups[0]?.id ?? null;
 
   const { data: sprints = [] } = useQuery({
-    queryKey: ['sprints', selectedGroupId],
-    queryFn: () => tasksApi.getSprints(selectedGroupId).then((r) => r.data),
-    enabled: !!selectedGroupId,
+    queryKey: ['sprints', effectiveGroupId],
+    queryFn: () => tasksApi.getSprints(effectiveGroupId).then((r) => r.data),
+    enabled: !!effectiveGroupId,
   });
 
   const { data: tasksData, isLoading: tasksLoading } = useQuery({
-    queryKey: ['member-my-tasks', selectedGroupId],
-    queryFn: () => tasksApi.getMyTasks({ groupId: selectedGroupId, size: 100 }).then((r) => r.data),
-    enabled: !!selectedGroupId,
+    queryKey: ['member-my-tasks', effectiveGroupId],
+    queryFn: () => tasksApi.getMyTasks({ groupId: effectiveGroupId, size: 100 }).then((r) => r.data),
+    enabled: !!effectiveGroupId,
   });
 
   const { data: personalStats } = useQuery({
-    queryKey: ['personal-stats', user?.id, selectedGroupId],
+    queryKey: ['personal-stats', user?.id, effectiveGroupId],
     queryFn: () =>
-      statsApi.getPersonalStats(user.id, selectedGroupId ? { groupId: selectedGroupId } : {}).then((r) => r.data),
+      statsApi.getPersonalStats(user.id, effectiveGroupId ? { groupId: effectiveGroupId } : {}).then((r) => r.data),
     enabled: !!user?.id,
   });
 
@@ -196,6 +296,32 @@ export default function MemberDashboard() {
     enabled: !!selectedGroupId && !!previousSprintName,
   });
 
+  // ── GitHub heatmap (7 days) ───────────────────────────
+  const {
+    data: heatmapData,
+    isLoading: heatmapLoading,
+  } = useQuery({
+    queryKey: ['member-heatmap', selectedGroupId],
+    queryFn: () => githubApi.getCommitHeatmap(selectedGroupId, 7).then((r) => r.data),
+    enabled: !!selectedGroupId,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  // ── Group member stats (for comparison) ──────────────
+  const {
+    data: memberStatsData,
+    isLoading: memberStatsLoading,
+    isError: memberStatsError,
+    refetch: refetchMemberStats,
+  } = useQuery({
+    queryKey: ['member-group-stats', selectedGroupId],
+    queryFn: () => statsApi.getMemberStats(selectedGroupId).then((r) => r.data),
+    enabled: !!selectedGroupId,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
   // ── Mutation ──────────────────────────────────────────
   const updateStatusMutation = useMutation({
     mutationFn: ({ id, status }) => tasksApi.updateStatus(id, status),
@@ -207,8 +333,8 @@ export default function MemberDashboard() {
       { id: taskId, status: newStatus },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ['member-my-tasks', selectedGroupId] });
-          queryClient.invalidateQueries({ queryKey: ['personal-stats', user?.id, selectedGroupId] });
+          queryClient.invalidateQueries({ queryKey: ['member-my-tasks', effectiveGroupId] });
+          queryClient.invalidateQueries({ queryKey: ['personal-stats', user?.id, effectiveGroupId] });
           message.success('Đã cập nhật trạng thái');
         },
         onError: (err) => {
@@ -253,9 +379,51 @@ export default function MemberDashboard() {
   // Activity feed: 5 most recently updated tasks
   const activityFeed = useMemo(() => allTasks.slice(0, 5), [allTasks]);
 
+  // ── Group comparison derived data ─────────────────────
+  const groupComparisonData = useMemo(() => {
+    if (!memberStatsData?.items?.length) return [];
+    return memberStatsData.items
+      .map((m) => ({
+        name: m.fullName?.split(' ').at(-1) || '?',
+        fullName: m.fullName || '—',
+        done: m.doneCount || 0,
+        isMe: m.userId === user?.id,
+      }))
+      .sort((a, b) => b.done - a.done);
+  }, [memberStatsData, user]);
+
+  const myStats = useMemo(
+    () => memberStatsData?.items?.find((m) => m.userId === user?.id) || null,
+    [memberStatsData, user]
+  );
+
+  const myRank = useMemo(() => {
+    if (!groupComparisonData.length) return null;
+    const idx = groupComparisonData.findIndex((m) => m.isMe);
+    return idx >= 0 ? { rank: idx + 1, total: groupComparisonData.length } : null;
+  }, [groupComparisonData]);
+
+  const contributionPct = useMemo(() => {
+    if (!myStats || !memberStatsData?.items?.length) return null;
+    const total = memberStatsData.items.reduce((s, m) => s + (m.doneCount || 0), 0);
+    return total > 0 ? Math.round(((myStats.doneCount || 0) / total) * 100) : 0;
+  }, [myStats, memberStatsData]);
+
   // ── Loading / empty states ────────────────────────────
   if (groupsLoading) {
-    return <Spin size="large" style={{ display: 'block', marginTop: 120, textAlign: 'center' }} />;
+    return (
+      <div>
+        <Skeleton active paragraph={{ rows: 2 }} style={{ marginBottom: 24 }} />
+        <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+          {[1, 2, 3, 4].map((k) => (
+            <Col key={k} xs={12} sm={6}>
+              <Card><Skeleton active paragraph={{ rows: 2 }} /></Card>
+            </Col>
+          ))}
+        </Row>
+        <Skeleton active paragraph={{ rows: 8 }} />
+      </div>
+    );
   }
 
   if (!groups.length) {
@@ -292,7 +460,7 @@ export default function MemberDashboard() {
         <Col>
           <Space wrap>
             <Select
-              value={selectedGroupId}
+              value={effectiveGroupId}
               onChange={(v) => {
                 setSelectedGroupId(v);
                 setSelectedSprint(null);
@@ -327,8 +495,8 @@ export default function MemberDashboard() {
       )}
 
       {/* ── Stats row ──────────────────────────────────── */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-        <Col xs={12} sm={6}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
+        <Col xs={12} sm={8} lg={5}>
           <Card>
             <Statistic
               title={showingSprintStats ? 'Task trong sprint' : 'Task được giao'}
@@ -337,7 +505,7 @@ export default function MemberDashboard() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={8} lg={5}>
           <Card>
             <Statistic
               title="Đã hoàn thành"
@@ -365,7 +533,7 @@ export default function MemberDashboard() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={8} lg={5}>
           <Card>
             <Statistic
               title="Đang thực hiện"
@@ -375,7 +543,7 @@ export default function MemberDashboard() {
             />
           </Card>
         </Col>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={8} lg={5}>
           <Card styles={{ body: { paddingBottom: 12 } }}>
             <Text type="secondary" style={{ fontSize: 13 }}>
               % Hoàn thành
@@ -393,15 +561,159 @@ export default function MemberDashboard() {
             />
           </Card>
         </Col>
+        {/* Contribution rank card */}
+        <Col xs={12} sm={8} lg={4}>
+          <Card>
+            <Statistic
+              title="Hạng trong nhóm"
+              value={myRank ? `${myRank.rank}/${myRank.total}` : '—'}
+              valueStyle={{ color: '#fa8c16', fontSize: 28 }}
+              prefix={<TrophyOutlined style={{ color: '#fa8c16' }} />}
+            />
+          </Card>
+        </Col>
       </Row>
+
+      {/* ── Analytics Row ──────────────────────────────── */}
+      {effectiveGroupId && (
+        <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+          {/* GitHub Heatmap 7 days */}
+          <Col xs={24} lg={14}>
+            <Card
+              title={
+                <Space>
+                  <GithubOutlined />
+                  <span>Hoạt động GitHub nhóm — 7 ngày qua</span>
+                  {heatmapData?.repo && (
+                    <Tag color="green" style={{ fontSize: 11 }}>
+                      {heatmapData.repo}
+                    </Tag>
+                  )}
+                </Space>
+              }
+              size="small"
+              styles={{ body: { padding: '12px 16px' } }}
+            >
+              {heatmapLoading ? (
+                <Skeleton active paragraph={{ rows: 2 }} />
+              ) : heatmapData?.configured === false ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="GitHub chưa được cấu hình cho nhóm này"
+                  description="Liên hệ Admin để thiết lập tích hợp GitHub."
+                />
+              ) : (
+                <MiniCommitHeatmap heatmap={heatmapData?.heatmap} />
+              )}
+            </Card>
+          </Col>
+
+          {/* Group comparison */}
+          <Col xs={24} lg={10}>
+            <Card
+              title={
+                <Space>
+                  <TrophyOutlined style={{ color: '#fa8c16' }} />
+                  <span>So sánh đóng góp nhóm</span>
+                  {myRank && (
+                    <Tag color="gold" style={{ fontSize: 11 }}>
+                      Hạng {myRank.rank}/{myRank.total}
+                    </Tag>
+                  )}
+                </Space>
+              }
+              size="small"
+              extra={
+                memberStatsError && (
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    onClick={() => refetchMemberStats()}
+                  >
+                    Thử lại
+                  </Button>
+                )
+              }
+              styles={{ body: { padding: '12px 16px' } }}
+            >
+              {memberStatsLoading ? (
+                <Skeleton active paragraph={{ rows: 3 }} />
+              ) : memberStatsError ? (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="Không thể tải dữ liệu"
+                />
+              ) : groupComparisonData.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có dữ liệu" />
+              ) : (
+                <>
+                  {contributionPct !== null && (
+                    <div style={{ marginBottom: 12 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Tỉ lệ đóng góp của bạn
+                      </Text>
+                      <Progress
+                        percent={contributionPct}
+                        strokeColor="#722ed1"
+                        style={{ marginTop: 4, marginBottom: 0 }}
+                      />
+                    </div>
+                  )}
+                  <ResponsiveContainer width="100%" height={140}>
+                    <BarChart
+                      data={groupComparisonData}
+                      layout="vertical"
+                      margin={{ top: 0, right: 24, bottom: 0, left: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" allowDecimals={false} fontSize={10} />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        fontSize={11}
+                        width={44}
+                        interval={0}
+                      />
+                      <RechartTooltip
+                        formatter={(val) => [val, 'Task Done']}
+                        labelFormatter={(label, payload) =>
+                          payload?.[0]?.payload?.fullName || label
+                        }
+                      />
+                      <Bar dataKey="done" radius={[0, 4, 4, 0]} maxBarSize={18}>
+                        {groupComparisonData.map((entry) => (
+                          <Cell
+                            key={entry.fullName}
+                            fill={entry.isMe ? '#722ed1' : '#b37feb'}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <Text type="secondary" style={{ fontSize: 10, display: 'block', textAlign: 'right' }}>
+                    Tím đậm = bạn · Tím nhạt = thành viên khác
+                  </Text>
+                </>
+              )}
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       <Row gutter={[16, 16]}>
         {/* ── Task columns ─────────────────────────────── */}
         <Col xs={24} xl={17}>
           {tasksLoading ? (
-            <div style={{ textAlign: 'center', padding: 60 }}>
-              <Spin />
-            </div>
+            <Row gutter={[12, 12]}>
+              {COLUMNS.map((col) => (
+                <Col xs={24} md={8} key={col.key}>
+                  <Card title={<Skeleton.Input active size="small" style={{ width: 100 }} />}>
+                    <Skeleton active paragraph={{ rows: 4 }} />
+                  </Card>
+                </Col>
+              ))}
+            </Row>
           ) : (
             <Row gutter={[12, 12]}>
               {COLUMNS.map((col) => (
@@ -528,3 +840,4 @@ export default function MemberDashboard() {
     </div>
   );
 }
+
