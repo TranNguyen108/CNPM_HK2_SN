@@ -4,8 +4,10 @@ const { GroupMember } = require('../models/groupMember.model');
 const { Group } = require('../models/group.model');
 const { User } = require('../models/user.model');
 const { JiraConfig } = require('../models/jiraConfig.model');
+const { GithubConfig } = require('../models/githubConfig.model');
 const { sequelize } = require('../config/database');
 const JiraApiService = require('../services/jiraApi.service');
+const GitHubApiService = require('../services/githubApi.service');
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_SIZE = 10;
@@ -730,6 +732,167 @@ exports.getMyGroups = async (req, res) => {
 
     res.json(result);
   } catch (err) {
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+//  GitHub Analytics Endpoints
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/stats/group/:groupId/commits/heatmap?days=90
+ * Returns daily commit counts for the last N days.
+ */
+exports.getCommitHeatmap = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 90, 7), 365);
+
+    await ensureGroupAccess(req.user, groupId);
+
+    const config = await GithubConfig.findOne({ where: { group_id: groupId, is_active: 1 } });
+    if (!config) {
+      return res.json({ configured: false, heatmap: [] });
+    }
+
+    const github = new GitHubApiService(config);
+    const commits = await github.fetchAllCommitsSince(days);
+
+    // Group by ISO date
+    const countByDate = {};
+    for (const c of commits) {
+      const date = c.commit?.author?.date?.slice(0, 10);
+      if (date) countByDate[date] = (countByDate[date] || 0) + 1;
+    }
+
+    // Build full date range (oldest → today)
+    const since = new Date();
+    since.setDate(since.getDate() - days + 1);
+    const heatmap = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(since);
+      d.setDate(d.getDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      heatmap.push({ date: key, count: countByDate[key] || 0 });
+    }
+
+    res.json({
+      configured: true,
+      repo: `${config.repo_owner}/${config.repo_name}`,
+      heatmap,
+    });
+  } catch (err) {
+    if (err.response?.status === 404) {
+      return res.status(404).json({ message: 'Repository không tìm thấy hoặc không có quyền truy cập' });
+    }
+    if (err.response?.status === 401) {
+      return res.status(401).json({ message: 'Token GitHub không hợp lệ hoặc đã hết hạn' });
+    }
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+/**
+ * GET /api/stats/group/:groupId/commits/recent?limit=10
+ * Returns the N most recent commits.
+ */
+exports.getRecentCommits = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 30);
+
+    await ensureGroupAccess(req.user, groupId);
+
+    const config = await GithubConfig.findOne({ where: { group_id: groupId, is_active: 1 } });
+    if (!config) {
+      return res.json({ configured: false, items: [] });
+    }
+
+    const github = new GitHubApiService(config);
+    const raw = await github.fetchCommits({ per_page: limit });
+
+    const items = raw.map((c) => ({
+      sha: c.sha?.slice(0, 7) || '',
+      message: c.commit?.message?.split('\n')[0] || '',
+      author: {
+        name: c.commit?.author?.name || '',
+        email: c.commit?.author?.email || '',
+        date: c.commit?.author?.date || null,
+        avatarUrl: c.author?.avatar_url || null,
+        login: c.author?.login || null,
+      },
+      url: c.html_url || null,
+    }));
+
+    res.json({
+      configured: true,
+      repo: `${config.repo_owner}/${config.repo_name}`,
+      items,
+    });
+  } catch (err) {
+    if (err.response?.status === 404) {
+      return res.status(404).json({ message: 'Repository không tìm thấy' });
+    }
+    if (err.response?.status === 401) {
+      return res.status(401).json({ message: 'Token GitHub không hợp lệ' });
+    }
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+/**
+ * GET /api/stats/group/:groupId/commits/members?days=30
+ * Returns commit counts per group member (matched by git author email).
+ */
+exports.getCommitsByMember = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+
+    await ensureGroupAccess(req.user, groupId);
+
+    const config = await GithubConfig.findOne({ where: { group_id: groupId, is_active: 1 } });
+    if (!config) {
+      return res.json({ configured: false, items: [] });
+    }
+
+    const github = new GitHubApiService(config);
+    const commits = await github.fetchAllCommitsSince(days);
+
+    // Count commits by author email
+    const countByEmail = {};
+    for (const c of commits) {
+      const email = c.commit?.author?.email?.toLowerCase();
+      if (email) countByEmail[email] = (countByEmail[email] || 0) + 1;
+    }
+
+    // Load group members & their user records
+    const memberships = await GroupMember.findAll({ where: { group_id: groupId } });
+    const memberIds = memberships.map((m) => m.user_id);
+    if (!memberIds.length) return res.json({ configured: true, items: [] });
+
+    const users = await User.findAll({
+      where: { id: { [Op.in]: memberIds } },
+      attributes: ['id', 'email', 'full_name'],
+      raw: true,
+    });
+
+    const items = users.map((u) => ({
+      userId: u.id,
+      fullName: u.full_name || u.email,
+      email: u.email,
+      commits: countByEmail[u.email?.toLowerCase()] || 0,
+    }));
+
+    res.json({ configured: true, repo: `${config.repo_owner}/${config.repo_name}`, items });
+  } catch (err) {
+    if (err.response?.status === 404) {
+      return res.status(404).json({ message: 'Repository không tìm thấy' });
+    }
+    if (err.response?.status === 401) {
+      return res.status(401).json({ message: 'Token GitHub không hợp lệ' });
+    }
     res.status(err.statusCode || 500).json({ message: err.message });
   }
 };
