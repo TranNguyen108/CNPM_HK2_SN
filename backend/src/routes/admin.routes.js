@@ -31,6 +31,7 @@ router.get('/lecturers', ctrl.getLecturers);
 router.post('/lecturers', ctrl.createLecturer);
 router.put('/lecturers/:id', ctrl.updateLecturer);
 router.delete('/lecturers/:id', ctrl.deleteLecturer);
+router.patch('/users/:id/github-username', ctrl.updateUserGithubUsername);
 
 // Jira
 router.get('/groups/:id/jira-config', ctrl.getJiraConfig);

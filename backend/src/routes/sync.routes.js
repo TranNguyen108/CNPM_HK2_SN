@@ -6,6 +6,7 @@ router.use(auth);
 
 // Trigger sync thủ công
 router.post('/jira/:groupId', ctrl.syncJira);
+router.post('/github/:groupId', ctrl.syncGithub);
 
 // Xem lịch sử sync
 router.get('/logs/:groupId', ctrl.getSyncLogs);
