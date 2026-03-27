@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Row,
@@ -17,6 +17,8 @@ import {
   Empty,
   Space,
   Badge,
+  Skeleton,
+  Alert,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -25,8 +27,26 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   ExclamationCircleOutlined,
+  GithubOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as ReTooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+} from 'recharts';
+import dayjs from 'dayjs';
 import { tasksApi, statsApi } from '../../api/tasksApi';
 
 const { Title, Text } = Typography;
@@ -55,6 +75,143 @@ const avatarColor = (name) => {
   const idx = (name || '').charCodeAt(0) % colors.length;
   return colors[idx];
 };
+
+const PIE_COLORS = ['#1677ff', '#52c41a', '#fa8c16', '#eb2f96', '#722ed1', '#13c2c2', '#f5222d', '#fadb14'];
+
+const scoreBadge = (pct) => {
+  if (pct >= 80) return { color: '#52c41a', label: 'Xuất sắc' };
+  if (pct >= 60) return { color: '#1677ff', label: 'Tốt' };
+  if (pct >= 40) return { color: '#fa8c16', label: 'Trung bình' };
+  return { color: '#f5222d', label: 'Cần cải thiện' };
+};
+
+// ── Sprint Burndown Chart ─────────────────────────────────────────────────────
+function SprintBurndownChart({ groupId, sprintName }) {
+  const { data: burndownResp, isLoading } = useQuery({
+    queryKey: ['burndown', groupId, sprintName],
+    queryFn: () => statsApi.getSprintBurndown(groupId, sprintName).then((r) => r.data),
+    enabled: !!sprintName,
+    staleTime: 60_000,
+  });
+
+  const { data: taskData } = useQuery({
+    queryKey: ['tasks-for-burndown', groupId, sprintName],
+    queryFn: () => tasksApi.getTasks({ groupId, sprintName, size: 200 }).then((r) => r.data),
+    enabled: !!sprintName,
+    staleTime: 60_000,
+  });
+
+  const chartData = useMemo(() => {
+    const burndown = burndownResp?.burndown;
+    if (!Array.isArray(burndown) || burndown.length === 0) return [];
+    const totalTasks = Array.isArray(taskData?.items) ? taskData.items.length : burndown[burndown.length - 1]?.cumulativeDone || 0;
+    const n = burndown.length;
+    return burndown.map((item, idx) => ({
+      date: dayjs(item.date).format('DD/MM'),
+      'Thực tế': totalTasks - item.cumulativeDone,
+      'Lý tưởng': Math.round(totalTasks * (n - 1 - idx) / Math.max(n - 1, 1)),
+    }));
+  }, [burndownResp, taskData]);
+
+  if (!sprintName) {
+    return (
+      <div style={{ textAlign: 'center', padding: 32, color: '#8c8c8c' }}>
+        <Text type="secondary">Chọn sprint để xem biểu đồ burndown</Text>
+      </div>
+    );
+  }
+
+  if (isLoading) return <Skeleton active paragraph={{ rows: 5 }} />;
+
+  if (chartData.length === 0) {
+    return <Empty description="Không có dữ liệu burndown cho sprint này" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <LineChart data={chartData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+        <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+        <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+        <ReTooltip />
+        <Legend wrapperStyle={{ fontSize: 13 }} />
+        <Line type="monotone" dataKey="Thực tế" stroke="#1677ff" strokeWidth={2} dot={{ r: 3 }} />
+        <Line type="monotone" dataKey="Lý tưởng" stroke="#bfbfbf" strokeWidth={1.5} strokeDasharray="5 5" dot={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Task Contribution Pie Chart ───────────────────────────────────────────────
+function TaskContributionPie({ memberRows, isLoading }) {
+  const pieData = useMemo(
+    () => memberRows.filter((m) => m.done > 0).map((m) => ({ name: m.fullName, value: m.done })),
+    [memberRows]
+  );
+
+  if (isLoading) return <Skeleton active paragraph={{ rows: 5 }} />;
+
+  if (pieData.length === 0) {
+    return <Empty description="Chưa có task hoàn thành" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <PieChart>
+        <Pie
+          data={pieData}
+          cx="50%"
+          cy="50%"
+          outerRadius={90}
+          dataKey="value"
+          label={({ name, value }) => `${name}: ${value}`}
+          labelLine={false}
+        >
+          {pieData.map((_, idx) => (
+            <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+          ))}
+        </Pie>
+        <ReTooltip formatter={(val) => [`${val} task`, 'Hoàn thành']} />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Commit Frequency Bar Chart ────────────────────────────────────────────────
+function CommitFrequencyBar({ memberRows, isLoading }) {
+  const barData = useMemo(
+    () => memberRows.map((m) => ({ name: m.fullName, commits: m.commits })),
+    [memberRows]
+  );
+
+  const hasCommits = barData.some((d) => d.commits > 0);
+
+  if (isLoading) return <Skeleton active paragraph={{ rows: 5 }} />;
+
+  return (
+    <>
+      {!hasCommits && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<GithubOutlined />}
+          message="Chưa có dữ liệu commit"
+          description="Tính năng đồng bộ GitHub chưa được cấu hình cho nhóm này."
+          style={{ marginBottom: 12, fontSize: 12 }}
+        />
+      )}
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={barData} margin={{ top: 8, right: 20, left: 0, bottom: 24 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-20} textAnchor="end" interval={0} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+          <ReTooltip formatter={(val) => [val, 'Commits']} />
+          <Bar dataKey="commits" fill="#722ed1" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </>
+  );
+}
 
 // ── Read-only Task Card ───────────────────────────────────────────────────────
 function TaskCard({ task }) {
@@ -152,73 +309,63 @@ function KanbanReadOnly({ tasks }) {
   );
 }
 
-// ── Member Stats Table ────────────────────────────────────────────────────────
-function MemberTable({ groupId, sprintName }) {
-  const { data: memberStats, isLoading } = useQuery({
+// ── Member Comparison Table ───────────────────────────────────────────────────
+function MemberComparisonTable({ groupId, sprintName, sprintTaskData, isLoadingTasks }) {
+  const { data: memberStats, isLoading: loadingMembers } = useQuery({
     queryKey: ['lecturer-member-stats', groupId],
     queryFn: () => statsApi.getMemberStats(groupId).then((r) => r.data),
     staleTime: 60_000,
   });
 
-  // If sprint is selected, filter member stats from tasks of that sprint
-  const { data: sprintTaskData } = useQuery({
-    queryKey: ['lecturer-sprint-tasks-detail', groupId, sprintName],
-    queryFn: () =>
-      tasksApi
-        .getTasks({ groupId, sprintName, size: 200 })
-        .then((r) => r.data),
-    enabled: !!sprintName,
-    staleTime: 60_000,
-  });
+  const tableData = useMemo(() => {
+    const baseItems = Array.isArray(memberStats?.items) ? memberStats.items : [];
 
-  // Re-calculate per-member stats from sprint tasks when sprint filter is active
-  const sprintMemberMap = (() => {
-    if (!sprintName || !Array.isArray(sprintTaskData?.items)) return null;
-    const map = new Map();
-    sprintTaskData.items.forEach((t) => {
-      if (!t.assignee_id) return;
-      if (!map.has(t.assignee_id)) {
-        map.set(t.assignee_id, {
-          userId: t.assignee_id,
-          email: t.assignee_email || '',
-          assigned: 0,
-          done: 0,
-        });
-      }
-      const entry = map.get(t.assignee_id);
-      entry.assigned += 1;
-      if (DONE_STATUSES.includes((t.status || '').toLowerCase())) entry.done += 1;
-    });
-    return map;
-  })();
+    // Build per-member sprint stats from task list
+    const sprintMap = new Map();
+    if (Array.isArray(sprintTaskData?.items)) {
+      sprintTaskData.items.forEach((t) => {
+        if (!t.assignee_id) return;
+        if (!sprintMap.has(t.assignee_id)) {
+          sprintMap.set(t.assignee_id, { assigned: 0, done: 0, lastActive: null });
+        }
+        const entry = sprintMap.get(t.assignee_id);
+        entry.assigned += 1;
+        if (DONE_STATUSES.includes((t.status || '').toLowerCase())) entry.done += 1;
+        const updated = t.updated_at ? dayjs(t.updated_at) : null;
+        if (updated && (!entry.lastActive || updated.isAfter(entry.lastActive))) {
+          entry.lastActive = updated;
+        }
+      });
+    }
 
-  const baseItems = Array.isArray(memberStats?.items) ? memberStats.items : [];
-
-  const tableData = baseItems.map((m) => {
-    if (sprintMemberMap) {
-      const sprint = sprintMemberMap.get(m.userId) || { assigned: 0, done: 0 };
+    const rows = baseItems.map((m) => {
+      const sprint = sprintName && sprintMap.size > 0
+        ? (sprintMap.get(m.userId) || { assigned: 0, done: 0, lastActive: null })
+        : { assigned: m.assignedCount, done: m.doneCount, lastActive: null };
       return {
         key: m.userId,
-        fullName: m.fullName || m.email || m.userId,
+        fullName: m.fullName || m.email || String(m.userId),
         email: m.email,
         avatar: m.avatar,
         role: m.roleInGroup,
         assigned: sprint.assigned,
         done: sprint.done,
-        inProgress: 0,
+        commits: 0, // GitHub API not yet integrated
+        linesAdded: null,
+        lastActive: sprint.lastActive,
       };
-    }
-    return {
-      key: m.userId,
-      fullName: m.fullName || m.email || m.userId,
-      email: m.email,
-      avatar: m.avatar,
-      role: m.roleInGroup,
-      assigned: m.assignedCount,
-      done: m.doneCount,
-      inProgress: m.inProgressCount,
-    };
-  });
+    });
+
+    // Compute contribution score
+    const maxRaw = Math.max(...rows.map((r) => r.done * 3 + r.commits), 1);
+    return rows.map((r) => ({
+      ...r,
+      scoreRaw: r.done * 3 + r.commits,
+      scorePct: Math.round(((r.done * 3 + r.commits) / maxRaw) * 100),
+    }));
+  }, [memberStats, sprintTaskData, sprintName]);
+
+  const isLoading = loadingMembers || isLoadingTasks;
 
   const columns = [
     {
@@ -247,49 +394,88 @@ function MemberTable({ groupId, sprintName }) {
       ),
     },
     {
-      title: 'Vai trò',
-      dataIndex: 'role',
-      key: 'role',
-      width: 100,
-      render: (role) => {
-        const colorMap = { LEADER: 'gold', MEMBER: 'blue', VIEWER: 'default' };
-        return <Tag color={colorMap[role] || 'default'}>{role}</Tag>;
-      },
-    },
-    {
-      title: 'Task được giao',
+      title: 'Task giao',
       dataIndex: 'assigned',
       key: 'assigned',
-      width: 130,
+      width: 100,
       align: 'center',
-      render: (v) => (
-        <Badge count={v} showZero color="#1677ff" />
-      ),
+      sorter: (a, b) => a.assigned - b.assigned,
+      render: (v) => <Badge count={v} showZero color="#1677ff" />,
     },
     {
-      title: 'Task Done',
+      title: 'Task done',
       dataIndex: 'done',
       key: 'done',
       width: 100,
       align: 'center',
+      sorter: (a, b) => a.done - b.done,
+      render: (v) => <Badge count={v} showZero color="#52c41a" />,
+    },
+    {
+      title: 'Commits',
+      dataIndex: 'commits',
+      key: 'commits',
+      width: 90,
+      align: 'center',
       render: (v) => (
-        <Badge count={v} showZero color="#52c41a" />
+        <Tooltip title="Cần cấu hình GitHub để lấy dữ liệu commit">
+          <Text type="secondary">{v}</Text>
+        </Tooltip>
       ),
     },
     {
-      title: '% Hoàn thành',
-      key: 'progress',
+      title: 'Lines added',
+      dataIndex: 'linesAdded',
+      key: 'linesAdded',
+      width: 110,
+      align: 'center',
+      render: () => <Text type="secondary">N/A</Text>,
+    },
+    {
+      title: 'Last active',
+      dataIndex: 'lastActive',
+      key: 'lastActive',
+      width: 120,
+      align: 'center',
+      sorter: (a, b) => {
+        if (!a.lastActive && !b.lastActive) return 0;
+        if (!a.lastActive) return 1;
+        if (!b.lastActive) return -1;
+        return a.lastActive.valueOf() - b.lastActive.valueOf();
+      },
+      render: (val) => val
+        ? <Text style={{ fontSize: 12 }}>{val.format('DD/MM HH:mm')}</Text>
+        : <Text type="secondary" style={{ fontSize: 12 }}>—</Text>,
+    },
+    {
+      title: (
+        <Tooltip title="Công thức: (task_done × 3 + commits × 1) / max">
+          <Space size={4}>
+            <TrophyOutlined />
+            Điểm đóng góp
+          </Space>
+        </Tooltip>
+      ),
+      key: 'score',
       width: 160,
       align: 'center',
+      sorter: (a, b) => a.scorePct - b.scorePct,
+      defaultSortOrder: 'descend',
       render: (_, record) => {
-        const pct = record.assigned > 0 ? Math.round((record.done / record.assigned) * 100) : 0;
+        const { color, label } = scoreBadge(record.scorePct);
         return (
-          <Progress
-            percent={pct}
-            size="small"
-            status={pct === 100 ? 'success' : 'active'}
-            style={{ margin: 0 }}
-          />
+          <Space direction="vertical" size={2} style={{ alignItems: 'center' }}>
+            <Tag color={color} style={{ margin: 0, fontWeight: 600 }}>
+              {record.scorePct}% — {label}
+            </Tag>
+            <Progress
+              percent={record.scorePct}
+              showInfo={false}
+              size="small"
+              strokeColor={color}
+              style={{ width: 110, margin: 0 }}
+            />
+          </Space>
         );
       },
     },
@@ -303,6 +489,7 @@ function MemberTable({ groupId, sprintName }) {
       pagination={false}
       size="small"
       rowKey="key"
+      scroll={{ x: 780 }}
     />
   );
 }
@@ -320,7 +507,7 @@ export default function LecturerGroupDetail() {
     staleTime: 60_000,
   });
 
-  const sprints = Array.isArray(sprintList) ? sprintList : [];
+  const sprints = Array.isArray(sprintList?.items) ? sprintList.items : Array.isArray(sprintList) ? sprintList : [];
 
   // Auto-select latest sprint once loaded
   useEffect(() => {
@@ -329,7 +516,7 @@ export default function LecturerGroupDetail() {
     }
   }, [sprints.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Tasks for selected sprint
+  // Tasks for selected sprint (used by charts + kanban)
   const { data: taskData, isLoading: loadingTasks } = useQuery({
     queryKey: ['lecturer-tasks', groupId, selectedSprint],
     queryFn: () =>
@@ -338,7 +525,7 @@ export default function LecturerGroupDetail() {
     staleTime: 60_000,
   });
 
-  // All tasks (no sprint filter) when no sprint is selected
+  // All tasks fallback (no sprint selected)
   const { data: allTaskData, isLoading: loadingAllTasks } = useQuery({
     queryKey: ['lecturer-all-tasks', groupId],
     queryFn: () =>
@@ -354,17 +541,32 @@ export default function LecturerGroupDetail() {
     staleTime: 60_000,
   });
 
-  const tasks = Array.isArray(
-    (selectedSprint ? taskData : allTaskData)?.items
-  )
-    ? (selectedSprint ? taskData : allTaskData).items
-    : [];
-
+  const activeTaskPayload = selectedSprint ? taskData : allTaskData;
+  const tasks = Array.isArray(activeTaskPayload?.items) ? activeTaskPayload.items : [];
   const isLoading = selectedSprint ? loadingTasks : loadingAllTasks;
 
   const totalTasks = tasks.length;
   const doneTasks = tasks.filter((t) => DONE_STATUSES.includes((t.status || '').toLowerCase())).length;
   const progressPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+  // Build memberRows for charts (derived from sprint tasks + member stats)
+  const memberRows = useMemo(() => {
+    if (!Array.isArray(tasks) || tasks.length === 0) return [];
+    const map = new Map();
+    tasks.forEach((t) => {
+      if (!t.assignee_id) return;
+      if (!map.has(t.assignee_id)) {
+        map.set(t.assignee_id, {
+          fullName: t.assignee_email?.split('@')[0] || String(t.assignee_id),
+          done: 0,
+          commits: 0,
+        });
+      }
+      const entry = map.get(t.assignee_id);
+      if (DONE_STATUSES.includes((t.status || '').toLowerCase())) entry.done += 1;
+    });
+    return Array.from(map.values());
+  }, [tasks]);
 
   return (
     <div>
@@ -376,7 +578,7 @@ export default function LecturerGroupDetail() {
           type="text"
         />
         <Title level={4} style={{ margin: 0 }}>
-          Chi tiết nhóm
+          Chi tiết nhóm — Đánh giá đóng góp
         </Title>
       </div>
 
@@ -418,13 +620,13 @@ export default function LecturerGroupDetail() {
         </Row>
       </Card>
 
-      {/* Controls */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+      {/* Sprint Selector */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
         <Space>
-          <Text strong>Filter Sprint:</Text>
+          <Text strong>Sprint:</Text>
           <Select
             placeholder="Chọn sprint"
-            style={{ minWidth: 180 }}
+            style={{ minWidth: 200 }}
             value={selectedSprint}
             allowClear
             onChange={(val) => setSelectedSprint(val ?? null)}
@@ -436,8 +638,6 @@ export default function LecturerGroupDetail() {
             ))}
           </Select>
         </Space>
-
-        {/* Export button — will connect to API in week 6 */}
         <Button
           icon={<DownloadOutlined />}
           disabled
@@ -447,10 +647,79 @@ export default function LecturerGroupDetail() {
         </Button>
       </div>
 
-      {/* Kanban Board (read-only) */}
+      {/* ── Charts Row 1: Burndown + Pie ───────────────────────────────────── */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} lg={14}>
+          <Card
+            title={
+              <Space>
+                <ClockCircleOutlined style={{ color: '#1677ff' }} />
+                Sprint Burndown Chart
+              </Space>
+            }
+            size="small"
+          >
+            <SprintBurndownChart groupId={groupId} sprintName={selectedSprint} />
+          </Card>
+        </Col>
+        <Col xs={24} lg={10}>
+          <Card
+            title={
+              <Space>
+                <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                Đóng góp Task (Done)
+              </Space>
+            }
+            size="small"
+          >
+            <TaskContributionPie memberRows={memberRows} isLoading={isLoading} />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* ── Charts Row 2: Commit Frequency ────────────────────────────────── */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24}>
+          <Card
+            title={
+              <Space>
+                <GithubOutlined />
+                Tần suất Commit theo thành viên
+              </Space>
+            }
+            size="small"
+          >
+            <CommitFrequencyBar memberRows={memberRows} isLoading={isLoading} />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* ── Member Comparison Table ────────────────────────────────────────── */}
+      <Card
+        title={
+          <Space>
+            <TrophyOutlined style={{ color: '#fa8c16' }} />
+            Bảng so sánh đóng góp thành viên
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+        extra={
+          <Tooltip title="Điểm = (task_done × 3 + commits × 1) / max">
+            <Tag color="purple">Điểm đóng góp ước tính</Tag>
+          </Tooltip>
+        }
+      >
+        <MemberComparisonTable
+          groupId={groupId}
+          sprintName={selectedSprint}
+          sprintTaskData={activeTaskPayload}
+          isLoadingTasks={isLoading}
+        />
+      </Card>
+
+      {/* ── Kanban Board (read-only) ───────────────────────────────────────── */}
       <Card
         title="Kanban Board (Chỉ xem)"
-        style={{ marginBottom: 24 }}
         extra={
           <Tag color="default" style={{ fontWeight: 400 }}>
             Không thể kéo thả
@@ -466,11 +735,6 @@ export default function LecturerGroupDetail() {
         ) : (
           <KanbanReadOnly tasks={tasks} />
         )}
-      </Card>
-
-      {/* Member Assignment Table */}
-      <Card title="Bảng phân công thành viên">
-        <MemberTable groupId={groupId} sprintName={selectedSprint} />
       </Card>
     </div>
   );
