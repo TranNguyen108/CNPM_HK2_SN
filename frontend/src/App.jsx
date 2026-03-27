@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import GroupList from './pages/groups/GroupList';
 import GroupDetail from './pages/groups/GroupDetail';
 import LecturerList from './pages/lecturers/LecturerList';
+import GenerateSRS from './pages/leader/GenerateSRS';
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AdminLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/srs" element={<GenerateSRS />} />
           </Route>
         </Route>
 

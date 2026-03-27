@@ -8,6 +8,7 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  FileWordOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../auth/AuthContext';
 
@@ -17,6 +18,7 @@ const menuItems = [
   { key: '/admin/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
   { key: '/admin/groups', icon: <TeamOutlined />, label: 'Nhóm' },
   { key: '/admin/lecturers', icon: <UserOutlined />, label: 'Giảng viên' },
+  { key: '/srs', icon: <FileWordOutlined />, label: 'Generate SRS' },
 ];
 
 export default function AdminLayout() {
