@@ -12,6 +12,7 @@ import KanbanBoard from './pages/leader/KanbanBoard';
 import LeaderDashboard from './pages/leader/LeaderDashboard';
 import LecturerDashboard from './pages/lecturer/LecturerDashboard';
 import LecturerGroupDetail from './pages/lecturer/LecturerGroupDetail';
+import MemberDashboard from './pages/member/MemberDashboard';
 
 export default function App() {
   return (
@@ -56,8 +57,8 @@ export default function App() {
         {/* Member routes */}
         <Route element={<ProtectedRoute allowedRoles={['MEMBER']} />}>
           <Route element={<AdminLayout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/boards" element={<Dashboard />} />
+            <Route path="/dashboard" element={<MemberDashboard />} />
+            <Route path="/boards" element={<MemberDashboard />} />
             <Route path="/board/:groupId" element={<KanbanBoard />} />
           </Route>
         </Route>

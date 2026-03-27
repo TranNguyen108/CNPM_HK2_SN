@@ -31,8 +31,7 @@ const lecturerMenuItems = [
 ];
 
 const memberMenuItems = [
-  { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
-  { key: '/boards', icon: <AppstoreOutlined />, label: 'Boards' },
+  { key: '/dashboard', icon: <DashboardOutlined />, label: 'My Tasks' },
 ];
 
 export default function AdminLayout() {

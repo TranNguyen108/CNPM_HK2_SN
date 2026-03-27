@@ -47,4 +47,8 @@ export const statsApi = {
 
   // Group overview: completion rate, sprint days left
   getGroupOverview: (groupId) => axiosClient.get(`/stats/group/${groupId}/overview`),
+
+  // Personal stats for a specific user (self or ADMIN only)
+  getPersonalStats: (userId, params) =>
+    axiosClient.get(`/stats/user/${userId}/personal`, { params }),
 };
