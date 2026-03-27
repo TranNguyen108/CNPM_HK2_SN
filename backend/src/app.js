@@ -4,6 +4,7 @@ const { DataTypes } = require('sequelize');
 require('dotenv').config();
 const { connectDB, sequelize } = require('./config/database');
 const { startJiraSyncJob } = require('./jobs/jiraSync.job');
+const { startGithubSyncJob } = require('./jobs/githubSync.job');
 
 const app = express();
 app.use(cors());
@@ -74,6 +75,7 @@ const initApp = async () => {
 
   // Khởi động cron job tự động sync Jira mỗi 30 phút
   startJiraSyncJob();
+  startGithubSyncJob();
 };
 
 app.get('/', (req, res) => {
@@ -84,6 +86,7 @@ app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/sync', require('./routes/sync.routes'));
 app.use('/api', require('./routes/tasks.routes'));
+app.use('/api', require('./routes/commitStats.routes'));
 app.use('/api', require('./routes/commitStats.routes'));
 app.use('/api', require('./routes/export.routes'));
 const PORT = process.env.PORT || 3000;
