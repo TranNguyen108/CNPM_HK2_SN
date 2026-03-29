@@ -1,7 +1,8 @@
 const { syncGroupJira } = require('../services/jiraSync.service');
 const { syncGroupGithub } = require('../services/githubSync.service');
 const { SyncLog } = require('../models/syncLog.model');
-const { ensureGroupAccess } = require('../utils/groupAccess');
+const { ensureGroupAccess, ensureLeaderAccess } = require('../utils/groupAccess');
+const { notifyGroupJiraSyncSuccess } = require('../services/notification.service');
 
 /**
  * POST /api/sync/jira/:groupId
@@ -10,8 +11,13 @@ const { ensureGroupAccess } = require('../utils/groupAccess');
 exports.syncJira = async (req, res) => {
   const { groupId } = req.params;
   try {
-    await ensureGroupAccess(req.user, groupId);
+    await ensureLeaderAccess(req.user, groupId);
     const result = await syncGroupJira(groupId);
+    await notifyGroupJiraSyncSuccess({
+      groupId,
+      triggeredBy: req.user,
+      result
+    });
     res.json({
       message: 'Đồng bộ Jira hoàn tất',
       newTasks: result.newCount,

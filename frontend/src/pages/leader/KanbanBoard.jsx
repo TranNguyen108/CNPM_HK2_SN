@@ -511,15 +511,17 @@ export default function KanbanBoard() {
         </Space>
 
         <Space wrap>
-          <Button
-            icon={<SyncOutlined spin={syncMutation.isPending} />}
-            loading={syncMutation.isPending}
-            onClick={() => syncMutation.mutate()}
-            type="primary"
-            ghost
-          >
-            Sync Jira
-          </Button>
+          {isLeaderOrAdmin && (
+            <Button
+              icon={<SyncOutlined spin={syncMutation.isPending} />}
+              loading={syncMutation.isPending}
+              onClick={() => syncMutation.mutate()}
+              type="primary"
+              ghost
+            >
+              Sync Jira
+            </Button>
+          )}
           <Segmented
             value={viewMode}
             onChange={setViewMode}

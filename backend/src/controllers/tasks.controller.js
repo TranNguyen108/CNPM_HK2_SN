@@ -7,6 +7,7 @@ const { JiraConfig } = require('../models/jiraConfig.model');
 const { sequelize } = require('../config/database');
 const JiraApiService = require('../services/jiraApi.service');
 const { ensureGroupAccess, ensureLeaderAccess } = require('../utils/groupAccess');
+const { notifyTaskAssigned } = require('../services/notification.service');
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_SIZE = 10;
@@ -316,6 +317,12 @@ exports.assignTask = async (req, res) => {
     await task.update({
       assignee_id: assignee.id,
       assignee_email: assignee.email
+    });
+
+    await notifyTaskAssigned({
+      task,
+      assignee,
+      assignedBy: req.user
     });
 
     res.json({
