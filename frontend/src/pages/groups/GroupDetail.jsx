@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tabs, Table, Button, Modal, Form, Input, Select, Space, Popconfirm, Tag, message, Alert, Spin, Descriptions } from 'antd';
-import { PlusOutlined, DeleteOutlined, ArrowLeftOutlined, LinkOutlined, GithubOutlined, SearchOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { Tabs, Table, Button, Modal, Form, Input, Select, Space, Popconfirm, Tag, message, Alert, Spin, Descriptions, Card, Typography, List, Empty } from 'antd';
+import { PlusOutlined, DeleteOutlined, ArrowLeftOutlined, LinkOutlined, GithubOutlined, AppstoreOutlined, FileWordOutlined, EyeOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../../api/adminApi';
 import dayjs from 'dayjs';
+
+const { Title, Text, Paragraph } = Typography;
 
 // ===== MEMBERS TAB =====
 function MembersTab({ groupId }) {
@@ -257,6 +259,229 @@ function GithubConfigTab({ groupId }) {
   );
 }
 
+function SRSTab({ groupId, group }) {
+  const [projectName, setProjectName] = useState(group?.name || '');
+  const [version, setVersion] = useState('1.0');
+  const [selectedEpicIds, setSelectedEpicIds] = useState([]);
+
+  useEffect(() => {
+    setProjectName(group?.name || '');
+  }, [group?.name]);
+
+  const previewParams = useMemo(() => ({
+    projectName: projectName || group?.name || '',
+    version: version || '1.0',
+    epicIds: selectedEpicIds.length ? selectedEpicIds.join(',') : undefined,
+  }), [group?.name, projectName, selectedEpicIds, version]);
+
+  const { data: previewData, isLoading, isFetching } = useQuery({
+    queryKey: ['srsPreview', groupId, previewParams],
+    queryFn: () => adminApi.previewSrs(groupId, previewParams).then((r) => r.data),
+    enabled: Boolean(groupId),
+  });
+
+  useEffect(() => {
+    if (!previewData?.epicOptions?.length) return;
+    if (selectedEpicIds.length) return;
+    setSelectedEpicIds(previewData.epicOptions.map((epic) => epic.id));
+  }, [previewData, selectedEpicIds.length]);
+
+  const generateMutation = useMutation({
+    mutationFn: () => adminApi.generateSrs({
+      groupId,
+      epicIds: selectedEpicIds,
+      projectName: projectName || group?.name || '',
+      version: version || '1.0',
+    }),
+    onSuccess: (response) => {
+      const contentDisposition = response.headers['content-disposition'] || '';
+      const matchedName = contentDisposition.match(/filename="([^"]+)"/i);
+      const filename = matchedName?.[1] || `srs-${groupId}.docx`;
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(blobUrl);
+      message.success('Đã tạo file SRS thành công');
+    },
+    onError: (err) => {
+      const reader = new FileReader();
+      const blob = err.response?.data;
+
+      if (blob instanceof Blob) {
+        reader.onload = () => {
+          try {
+            const parsed = JSON.parse(reader.result);
+            message.error(parsed.message || 'Không thể tạo file SRS');
+          } catch {
+            message.error('Không thể tạo file SRS');
+          }
+        };
+        reader.readAsText(blob);
+        return;
+      }
+
+      message.error(err.response?.data?.message || 'Không thể tạo file SRS');
+    },
+  });
+
+  const epicOptions = previewData?.epicOptions || [];
+  const document = previewData?.document;
+
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card>
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Title level={4} style={{ margin: 0 }}>SRS Generator</Title>
+          <Text type="secondary">Chọn các epic muốn đưa vào tài liệu SRS, xem preview và xuất file Word theo mẫu chuẩn.</Text>
+          <Space wrap style={{ width: '100%' }}>
+            <Input
+              style={{ width: 260 }}
+              placeholder="Tên dự án"
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+            />
+            <Input
+              style={{ width: 120 }}
+              placeholder="Version"
+              value={version}
+              onChange={(e) => setVersion(e.target.value)}
+            />
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ minWidth: 420 }}
+              placeholder="Chọn epic để đưa vào SRS"
+              value={selectedEpicIds}
+              onChange={setSelectedEpicIds}
+              options={epicOptions.map((epic) => ({
+                value: epic.id,
+                label: `${epic.jiraKey} - ${epic.title}`,
+              }))}
+              optionFilterProp="label"
+            />
+            <Button
+              icon={<FileWordOutlined />}
+              type="primary"
+              onClick={() => generateMutation.mutate()}
+              loading={generateMutation.isPending}
+              disabled={!epicOptions.length}
+            >
+              Xuất .docx
+            </Button>
+          </Space>
+          {!epicOptions.length && !isLoading && (
+            <Alert
+              type="warning"
+              showIcon
+              message="Chưa có epic trong dữ liệu đồng bộ Jira"
+              description="Hãy đồng bộ Jira lại để hệ thống lưu thêm issue type và epic trước khi tạo SRS."
+            />
+          )}
+        </Space>
+      </Card>
+
+      <Card
+        title={<Space><EyeOutlined /><span>Preview</span></Space>}
+        extra={isFetching ? <Text type="secondary">Đang cập nhật...</Text> : null}
+      >
+        {isLoading ? (
+          <Spin />
+        ) : !document ? (
+          <Empty description="Không có dữ liệu preview" />
+        ) : (
+          <Space direction="vertical" size={20} style={{ width: '100%' }}>
+            <Card size="small" title="1. Giới thiệu">
+              <Paragraph><Text strong>Mục đích:</Text> {document.introduction.purpose}</Paragraph>
+              <Paragraph><Text strong>Phạm vi:</Text> {document.introduction.scope}</Paragraph>
+              <Paragraph><Text strong>Tài liệu tham chiếu:</Text> {(document.introduction.references || []).join(', ')}</Paragraph>
+            </Card>
+
+            <Card size="small" title="2. Mô tả tổng quan">
+              <Paragraph><Text strong>Góc nhìn sản phẩm:</Text> {document.overallDescription.productPerspective}</Paragraph>
+              <Paragraph><Text strong>Nhóm người dùng:</Text> {(document.overallDescription.userClasses || []).join(', ')}</Paragraph>
+              <List
+                size="small"
+                header="Giả định"
+                dataSource={document.overallDescription.assumptions || []}
+                renderItem={(item) => <List.Item>{item}</List.Item>}
+              />
+            </Card>
+
+            <Card size="small" title="3. Yêu cầu chức năng">
+              <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                {(document.sections || []).map((section) => (
+                  <Card
+                    key={section.epicKey}
+                    type="inner"
+                    title={`${section.epicKey} - ${section.title}`}
+                  >
+                    <Paragraph>{section.summary}</Paragraph>
+                    <Table
+                      size="small"
+                      pagination={false}
+                      rowKey="jiraKey"
+                      dataSource={section.stories || []}
+                      columns={[
+                        { title: 'Story', dataIndex: 'jiraKey', key: 'jiraKey', width: 120 },
+                        { title: 'Tiêu đề', dataIndex: 'title', key: 'title' },
+                        { title: 'Issue type', dataIndex: 'issueType', key: 'issueType', width: 120 },
+                        {
+                          title: 'Story points',
+                          dataIndex: 'storyPoints',
+                          key: 'storyPoints',
+                          width: 120,
+                          render: (value) => value ?? 'N/A',
+                        },
+                        {
+                          title: 'Priority',
+                          dataIndex: 'priority',
+                          key: 'priority',
+                          width: 110,
+                          render: (value) => {
+                            const colors = { Critical: 'red', High: 'volcano', Medium: 'gold', Low: 'green' };
+                            return <Tag color={colors[value] || 'blue'}>{value}</Tag>;
+                          }
+                        }
+                      ]}
+                    />
+                  </Card>
+                ))}
+              </Space>
+            </Card>
+
+            <Card size="small" title="4. Yêu cầu phi chức năng">
+              <List
+                size="small"
+                dataSource={document.nonFunctionalRequirements || []}
+                renderItem={(item) => <List.Item>{item}</List.Item>}
+              />
+            </Card>
+
+            <Card size="small" title="5. Use case summary">
+              <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                {(document.useCaseSummary || []).map((item) => (
+                  <Card key={item.epicKey} type="inner" title={`${item.epicKey} - ${item.epicTitle}`}>
+                    <Paragraph><Text strong>Actors:</Text> {(item.actors || []).join(', ')}</Paragraph>
+                    <List
+                      size="small"
+                      dataSource={item.useCases || []}
+                      renderItem={(useCase) => <List.Item>{useCase}</List.Item>}
+                    />
+                  </Card>
+                ))}
+              </Space>
+            </Card>
+          </Space>
+        )}
+      </Card>
+    </Space>
+  );
+}
+
 // ===== MAIN PAGE =====
 export default function GroupDetail() {
   const { id } = useParams();
@@ -273,6 +498,7 @@ export default function GroupDetail() {
     { key: 'members', label: 'Thành viên', children: <MembersTab groupId={id} /> },
     { key: 'jira', label: 'Jira', children: <JiraConfigTab groupId={id} /> },
     { key: 'github', label: 'GitHub', children: <GithubConfigTab groupId={id} /> },
+    { key: 'srs', label: 'SRS', children: <SRSTab groupId={id} group={group} /> },
   ];
 
   return (

@@ -37,4 +37,8 @@ export const adminApi = {
   getGithubConfig: (groupId) => axiosClient.get(`/admin/groups/${groupId}/github-config`),
   saveGithubConfig: (groupId, data) => axiosClient.post(`/admin/groups/${groupId}/github-config`, data),
   testGithub: (groupId) => axiosClient.post(`/admin/groups/${groupId}/test-github`),
+
+  // SRS
+  previewSrs: (groupId, params) => axiosClient.get(`/srs/preview/${groupId}`, { params }),
+  generateSrs: (data) => axiosClient.post('/srs/generate', data, { responseType: 'blob' }),
 };

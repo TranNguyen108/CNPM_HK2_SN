@@ -60,6 +60,37 @@ const ensureSchema = async () => {
       allowNull: true
     });
   }
+
+  const tasksTable = await queryInterface.describeTable('tasks').catch(() => null);
+  if (tasksTable) {
+    if (!tasksTable.description) {
+      await queryInterface.addColumn('tasks', 'description', {
+        type: DataTypes.TEXT('long'),
+        allowNull: true
+      });
+    }
+
+    if (!tasksTable.issue_type) {
+      await queryInterface.addColumn('tasks', 'issue_type', {
+        type: DataTypes.STRING(100),
+        allowNull: true
+      });
+    }
+
+    if (!tasksTable.epic_key) {
+      await queryInterface.addColumn('tasks', 'epic_key', {
+        type: DataTypes.STRING(50),
+        allowNull: true
+      });
+    }
+
+    if (!tasksTable.epic_name) {
+      await queryInterface.addColumn('tasks', 'epic_name', {
+        type: DataTypes.STRING(255),
+        allowNull: true
+      });
+    }
+  }
 };
 
 const initApp = async () => {
@@ -89,6 +120,7 @@ app.use('/api', require('./routes/tasks.routes'));
 app.use('/api', require('./routes/commitStats.routes'));
 app.use('/api', require('./routes/commitStats.routes'));
 app.use('/api', require('./routes/export.routes'));
+app.use('/api', require('./routes/srs.routes'));
 const PORT = process.env.PORT || 3000;
 initApp()
   .then(() => {
