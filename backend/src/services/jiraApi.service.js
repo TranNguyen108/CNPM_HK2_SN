@@ -41,9 +41,11 @@ class JiraApiService {
           startAt,
           maxResults,
           fields: [
-            'summary', 'status', 'priority', 'assignee',
+            'summary', 'description', 'issuetype', 'status', 'priority', 'assignee', 'parent',
             'customfield_10020', // Sprint
             'customfield_10016', // Story Points
+            'customfield_10014', // Epic Link (common Jira Cloud)
+            'customfield_10011', // Epic Name (common Jira Cloud)
             'story_points', 'duedate'
           ].join(',')
         }
