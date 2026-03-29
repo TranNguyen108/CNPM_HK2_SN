@@ -91,6 +91,85 @@ const ensureSchema = async () => {
       });
     }
   }
+
+  const notificationsTable = await queryInterface.describeTable('notifications').catch(() => null);
+  if (notificationsTable) {
+    if (!notificationsTable.group_id) {
+      await queryInterface.addColumn('notifications', 'group_id', {
+        type: DataTypes.CHAR(36),
+        allowNull: true
+      });
+    }
+
+    if (!notificationsTable.title) {
+      await queryInterface.addColumn('notifications', 'title', {
+        type: DataTypes.STRING(255),
+        allowNull: false,
+        defaultValue: 'Thông báo'
+      });
+    }
+
+    if (!notificationsTable.message) {
+      await queryInterface.addColumn('notifications', 'message', {
+        type: DataTypes.TEXT,
+        allowNull: false
+      });
+    }
+
+    if (!notificationsTable.type) {
+      await queryInterface.addColumn('notifications', 'type', {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        defaultValue: 'GENERAL'
+      });
+    }
+
+    if (!notificationsTable.reference_type) {
+      await queryInterface.addColumn('notifications', 'reference_type', {
+        type: DataTypes.STRING(50),
+        allowNull: true
+      });
+    }
+
+    if (!notificationsTable.reference_id) {
+      await queryInterface.addColumn('notifications', 'reference_id', {
+        type: DataTypes.CHAR(36),
+        allowNull: true
+      });
+    }
+
+    if (!notificationsTable.event_key) {
+      await queryInterface.addColumn('notifications', 'event_key', {
+        type: DataTypes.STRING(255),
+        allowNull: true,
+        unique: true
+      });
+    }
+
+    if (!notificationsTable.is_read) {
+      await queryInterface.addColumn('notifications', 'is_read', {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+      });
+    }
+
+    if (!notificationsTable.created_at) {
+      await queryInterface.addColumn('notifications', 'created_at', {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: sequelize.literal('CURRENT_TIMESTAMP')
+      });
+    }
+
+    if (!notificationsTable.updated_at) {
+      await queryInterface.addColumn('notifications', 'updated_at', {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: sequelize.literal('CURRENT_TIMESTAMP')
+      });
+    }
+  }
 };
 
 const initApp = async () => {
@@ -100,13 +179,16 @@ const initApp = async () => {
   // Tạo bảng mới nếu chưa tồn tại (không xóa dữ liệu cũ)
   const { Task } = require('./models/task.model');
   const { SyncLog } = require('./models/syncLog.model');
+  const { Notification } = require('./models/notification.model');
   await Task.sync({ force: false });
   await SyncLog.sync({ force: false });
-  console.log('Tables synced: tasks, sync_logs, commit_stats');
+  await Notification.sync({ force: false });
+  console.log('Tables synced: tasks, sync_logs, commit_stats, notifications');
 
   // Khởi động cron job tự động sync Jira mỗi 30 phút
   startJiraSyncJob();
   startGithubSyncJob();
+  require('./jobs/notification.job').startNotificationJob();
 };
 
 app.get('/', (req, res) => {
@@ -121,6 +203,7 @@ app.use('/api', require('./routes/commitStats.routes'));
 app.use('/api', require('./routes/commitStats.routes'));
 app.use('/api', require('./routes/export.routes'));
 app.use('/api', require('./routes/srs.routes'));
+app.use('/api', require('./routes/notification.routes'));
 const PORT = process.env.PORT || 3000;
 initApp()
   .then(() => {
