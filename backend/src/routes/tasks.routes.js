@@ -4,6 +4,7 @@ const ctrl = require('../controllers/tasks.controller');
 
 router.use(auth);
 
+router.get('/my-groups', ctrl.getMyGroups);
 router.get('/tasks', ctrl.getTasks);
 router.get('/tasks/my-tasks', ctrl.getMyTasks);
 router.get('/tasks/stats/:groupId', ctrl.getTaskStats);

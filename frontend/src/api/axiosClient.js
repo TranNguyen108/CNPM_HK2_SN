@@ -1,11 +1,10 @@
 import axios from 'axios';
 
 const axiosClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor — attach Bearer token
 axiosClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token) {
@@ -14,72 +13,31 @@ axiosClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor — auto refresh on 401
-let isRefreshing = false;
-let failedQueue = [];
-
-const processQueue = (error, token = null) => {
-  failedQueue.forEach(({ resolve, reject }) => {
-    if (error) reject(error);
-    else resolve(token);
-  });
-  failedQueue = [];
-};
-
 axiosClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-
-    if (error.response?.status !== 401 || originalRequest._retry) {
-      return Promise.reject(error);
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (refreshToken) {
+        try {
+          const { data } = await axios.post(
+            `${axiosClient.defaults.baseURL}/auth/refresh`,
+            { refreshToken }
+          );
+          localStorage.setItem('accessToken', data.accessToken);
+          localStorage.setItem('refreshToken', data.refreshToken);
+          originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
+          return axiosClient(originalRequest);
+        } catch {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          window.location.href = '/login';
+        }
+      }
     }
-
-    // Don't intercept login/register/refresh calls themselves
-    if (originalRequest.url?.includes('/auth/login') ||
-        originalRequest.url?.includes('/auth/register') ||
-        originalRequest.url?.includes('/auth/refresh')) {
-      return Promise.reject(error);
-    }
-
-    if (isRefreshing) {
-      return new Promise((resolve, reject) => {
-        failedQueue.push({ resolve, reject });
-      }).then((token) => {
-        originalRequest.headers.Authorization = `Bearer ${token}`;
-        return axiosClient(originalRequest);
-      });
-    }
-
-    originalRequest._retry = true;
-    isRefreshing = true;
-
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) {
-      isRefreshing = false;
-      localStorage.clear();
-      window.location.href = '/login';
-      return Promise.reject(error);
-    }
-
-    try {
-      const { data } = await axios.post(
-        `${import.meta.env.VITE_API_URL}/auth/refresh`,
-        { refreshToken }
-      );
-      localStorage.setItem('accessToken', data.accessToken);
-      localStorage.setItem('refreshToken', data.refreshToken);
-      processQueue(null, data.accessToken);
-      originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
-      return axiosClient(originalRequest);
-    } catch (refreshError) {
-      processQueue(refreshError, null);
-      localStorage.clear();
-      window.location.href = '/login';
-      return Promise.reject(refreshError);
-    } finally {
-      isRefreshing = false;
-    }
+    return Promise.reject(error);
   }
 );
 

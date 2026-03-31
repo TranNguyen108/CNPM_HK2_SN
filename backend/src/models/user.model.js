@@ -25,6 +25,10 @@ const User = sequelize.define('User', {
     defaultValue: 'MEMBER'
   },
   avatar: DataTypes.STRING,
+  github_username: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     defaultValue: true
