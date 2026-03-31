@@ -4,6 +4,25 @@ const { SyncLog } = require('../models/syncLog.model');
 const { User } = require('../models/user.model');
 const JiraApiService = require('./jiraApi.service');
 
+const stringifyDescription = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.trim() || null;
+
+  if (Array.isArray(value.content)) {
+    const parts = [];
+    const walk = (node) => {
+      if (!node) return;
+      if (typeof node.text === 'string') parts.push(node.text);
+      if (Array.isArray(node.content)) node.content.forEach(walk);
+      if (node.type === 'paragraph' || node.type === 'hardBreak') parts.push('\n');
+    };
+    value.content.forEach(walk);
+    return parts.join(' ').replace(/\s+\n/g, '\n').replace(/\n\s+/g, '\n').replace(/\n{3,}/g, '\n\n').trim() || null;
+  }
+
+  return null;
+};
+
 /**
  * Đồng bộ issues Jira vào DB cho một nhóm
  * @param {string} groupId
@@ -41,6 +60,16 @@ const syncGroupJira = async (groupId) => {
     // Story points: customfield_10016 hoặc story_points
     const rawPoints = fields.customfield_10016 ?? fields.story_points ?? null;
     const storyPoints = rawPoints !== null ? parseFloat(rawPoints) : null;
+    const issueType = fields.issuetype?.name || null;
+    const parentKey = fields.parent?.key || null;
+    const parentSummary = fields.parent?.fields?.summary || null;
+    const directEpicKey = fields.customfield_10014 || null;
+    const epicKey = issueType?.toLowerCase() === 'epic'
+      ? issue.key
+      : parentKey || directEpicKey;
+    const epicName = issueType?.toLowerCase() === 'epic'
+      ? (fields.customfield_10011 || fields.summary || issue.key)
+      : parentSummary || fields.customfield_10011 || null;
 
     // Khớp assignee theo email
     const assigneeEmail = fields.assignee?.emailAddress?.toLowerCase() || null;
@@ -51,8 +80,12 @@ const syncGroupJira = async (groupId) => {
       jira_key: issue.key,
       jira_id: String(issue.id),
       title: fields.summary || null,
+      description: stringifyDescription(fields.description),
+      issue_type: issueType,
       status: fields.status?.name || null,
       priority: fields.priority?.name || null,
+      epic_key: epicKey,
+      epic_name: epicName,
       assignee_id: assigneeId,
       assignee_email: assigneeEmail,
       sprint: sprintName,

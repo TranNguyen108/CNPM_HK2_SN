@@ -1,17 +1,36 @@
 const { Sequelize } = require('sequelize');
-require('dotenv').config();
+const { getEnv, isProduction } = require('./env');
 
-const sequelize = new Sequelize(
-  process.env.DB_NAME,
-  process.env.DB_USER,
-  process.env.DB_PASSWORD,
-  {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
-    dialect: 'mysql',
-    logging: false
-  }
-);
+const databaseUrl = getEnv('DATABASE_URL');
+const dialect = getEnv('DB_DIALECT', { defaultValue: 'mysql' });
+const useSsl = getEnv('DB_SSL', { defaultValue: isProduction() ? 'true' : 'false' }) === 'true';
+
+const commonOptions = {
+  dialect,
+  logging: false
+};
+
+if (useSsl) {
+  commonOptions.dialectOptions = {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false
+    }
+  };
+}
+
+const sequelize = databaseUrl
+  ? new Sequelize(databaseUrl, commonOptions)
+  : new Sequelize(
+    getEnv('DB_NAME', { required: true }),
+    getEnv('DB_USER', { required: true }),
+    getEnv('DB_PASSWORD', { required: true }),
+    {
+      ...commonOptions,
+      host: getEnv('DB_HOST', { required: true }),
+      port: Number(getEnv('DB_PORT', { defaultValue: '3306' }))
+    }
+  );
 
 const connectDB = async () => {
   try {
@@ -20,10 +39,13 @@ const connectDB = async () => {
   } catch (err) {
     console.error('Database connection failed.');
     console.error('DB target:', {
-      host: process.env.DB_HOST,
-      port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
-      database: process.env.DB_NAME,
-      user: process.env.DB_USER
+      databaseUrl: databaseUrl ? '[provided]' : '[not provided]',
+      host: databaseUrl ? undefined : getEnv('DB_HOST'),
+      port: databaseUrl ? undefined : Number(getEnv('DB_PORT', { defaultValue: '3306' })),
+      database: databaseUrl ? undefined : getEnv('DB_NAME'),
+      user: databaseUrl ? undefined : getEnv('DB_USER'),
+      dialect,
+      ssl: useSsl
     });
     console.error('Error details:', {
       name: err.name,

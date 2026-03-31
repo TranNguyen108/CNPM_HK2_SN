@@ -7,9 +7,15 @@ const CryptoJS = require('crypto-js');
 const axios = require('axios');
 const { Op } = require('sequelize');
 
-const AES_KEY = process.env.AES_KEY || 'project_management_aes_secret_key!!';
-const encrypt = (text) => CryptoJS.AES.encrypt(text, AES_KEY).toString();
-const decrypt = (cipher) => CryptoJS.AES.decrypt(cipher, AES_KEY).toString(CryptoJS.enc.Utf8);
+const getAesKey = () => {
+  if (!process.env.AES_KEY) {
+    throw new Error('AES_KEY is required');
+  }
+
+  return process.env.AES_KEY;
+};
+const encrypt = (text) => CryptoJS.AES.encrypt(text, getAesKey()).toString();
+const decrypt = (cipher) => CryptoJS.AES.decrypt(cipher, getAesKey()).toString(CryptoJS.enc.Utf8);
 
 // ===== DASHBOARD STATS =====
 exports.getStats = async (req, res) => {
@@ -115,11 +121,17 @@ exports.getLecturers = async (req, res) => {
 exports.createLecturer = async (req, res) => {
   try {
     const bcrypt = require('bcrypt');
-    const { email, fullName, password } = req.body;
+    const { email, fullName, password, githubUsername } = req.body;
     const existing = await User.findOne({ where: { email } });
     if (existing) return res.status(400).json({ message: 'Email already exists' });
     const password_hash = await bcrypt.hash(password || '123456', 10);
-    const lecturer = await User.create({ email, full_name: fullName, password_hash, role: 'LECTURER' });
+    const lecturer = await User.create({
+      email,
+      full_name: fullName,
+      password_hash,
+      role: 'LECTURER',
+      github_username: githubUsername || null
+    });
     res.status(201).json({ message: 'Lecturer created', id: lecturer.id });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
@@ -128,8 +140,30 @@ exports.updateLecturer = async (req, res) => {
   try {
     const user = await User.findOne({ where: { id: req.params.id, role: 'LECTURER' } });
     if (!user) return res.status(404).json({ message: 'Lecturer not found' });
-    await user.update({ full_name: req.body.fullName, email: req.body.email });
+    await user.update({
+      full_name: req.body.fullName,
+      email: req.body.email,
+      github_username: req.body.githubUsername || null
+    });
     res.json({ message: 'Updated successfully' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+};
+
+exports.updateUserGithubUsername = async (req, res) => {
+  try {
+    const { githubUsername } = req.body;
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    await user.update({ github_username: githubUsername || null });
+    res.json({
+      message: 'GitHub username updated',
+      user: {
+        id: user.id,
+        email: user.email,
+        github_username: user.github_username
+      }
+    });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 
@@ -205,7 +239,6 @@ exports.testGithub = async (req, res) => {
     res.json({ success: false, message: 'GitHub connection failed: ' + (err.response?.data?.message || err.message) });
   }
 };
-
 // ===== GET SINGLE GROUP =====
 exports.getGroup = async (req, res) => {
   try {

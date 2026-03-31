@@ -1,8 +1,8 @@
 const { syncGroupJira } = require('../services/jiraSync.service');
+const { syncGroupGithub } = require('../services/githubSync.service');
 const { SyncLog } = require('../models/syncLog.model');
-const { GithubConfig } = require('../models/githubConfig.model');
-const { GroupMember } = require('../models/groupMember.model');
-const GitHubApiService = require('../services/githubApi.service');
+const { ensureGroupAccess, ensureLeaderAccess } = require('../utils/groupAccess');
+const { notifyGroupJiraSyncSuccess } = require('../services/notification.service');
 
 /**
  * POST /api/sync/jira/:groupId
@@ -11,7 +11,13 @@ const GitHubApiService = require('../services/githubApi.service');
 exports.syncJira = async (req, res) => {
   const { groupId } = req.params;
   try {
+    await ensureLeaderAccess(req.user, groupId);
     const result = await syncGroupJira(groupId);
+    await notifyGroupJiraSyncSuccess({
+      groupId,
+      triggeredBy: req.user,
+      result
+    });
     res.json({
       message: 'Đồng bộ Jira hoàn tất',
       newTasks: result.newCount,
@@ -34,11 +40,41 @@ exports.syncJira = async (req, res) => {
 };
 
 /**
+ * POST /api/sync/github/:groupId
+ * Trigger đồng bộ GitHub thủ công
+ */
+exports.syncGithub = async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    await ensureGroupAccess(req.user, groupId);
+    const result = await syncGroupGithub(groupId);
+    res.json({
+      message: 'Đồng bộ GitHub hoàn tất',
+      newCommits: result.newCount,
+      updatedCommits: result.updatedCount,
+      totalFetched: result.total
+    });
+  } catch (err) {
+    await SyncLog.create({
+      group_id: groupId,
+      sync_type: 'github',
+      status: 'error',
+      new_count: 0,
+      updated_count: 0,
+      error_message: err.message
+    }).catch(() => {});
+
+    res.status(500).json({ message: 'Đồng bộ GitHub thất bại: ' + err.message });
+  }
+};
+
+/**
  * GET /api/sync/logs/:groupId
  * Xem lịch sử sync (20 bản ghi gần nhất)
  */
 exports.getSyncLogs = async (req, res) => {
   try {
+    await ensureGroupAccess(req.user, req.params.groupId);
     const logs = await SyncLog.findAll({
       where: { group_id: req.params.groupId },
       order: [['synced_at', 'DESC']],
@@ -56,6 +92,7 @@ exports.getSyncLogs = async (req, res) => {
  */
 exports.getTasks = async (req, res) => {
   try {
+    await ensureGroupAccess(req.user, req.params.groupId);
     const { Task } = require('../models/task.model');
     const tasks = await Task.findAll({
       where: { group_id: req.params.groupId },
@@ -64,60 +101,5 @@ exports.getTasks = async (req, res) => {
     res.json(tasks);
   } catch (err) {
     res.status(500).json({ message: err.message });
-  }
-};
-
-/**
- * POST /api/sync/github/:groupId
- * Kiểm tra kết nối GitHub và cập nhật last_synced_at.
- * Dành cho LEADER và ADMIN.
- */
-exports.syncGithub = async (req, res) => {
-  const { groupId } = req.params;
-  try {
-    // Allow LEADER or ADMIN only
-    const user = req.user;
-    if (user.role !== 'ADMIN') {
-      const membership = await GroupMember.findOne({
-        where: { group_id: groupId, user_id: user.id },
-      });
-      if (!membership) {
-        return res.status(403).json({ message: 'Bạn không có quyền truy cập nhóm này' });
-      }
-      if (!['LEADER'].includes(membership.role_in_group)) {
-        return res.status(403).json({ message: 'Chỉ Leader hoặc Admin mới được sync GitHub' });
-      }
-    }
-
-    const config = await GithubConfig.findOne({ where: { group_id: groupId, is_active: 1 } });
-    if (!config) {
-      return res.status(404).json({ message: 'GitHub chưa được cấu hình cho nhóm này. Liên hệ Admin để cài đặt.' });
-    }
-
-    const github = new GitHubApiService(config);
-    const recent = await github.fetchCommits({ per_page: 1 });
-
-    await config.update({ last_synced_at: new Date() });
-
-    res.json({
-      message: 'Kết nối GitHub thành công',
-      repo: `${config.repo_owner}/${config.repo_name}`,
-      lastSyncedAt: config.last_synced_at,
-      latestCommit: recent[0]
-        ? {
-            sha: recent[0].sha?.slice(0, 7),
-            message: recent[0].commit?.message?.split('\n')[0],
-            date: recent[0].commit?.author?.date,
-          }
-        : null,
-    });
-  } catch (err) {
-    if (err.response?.status === 401) {
-      return res.status(401).json({ message: 'Token GitHub không hợp lệ hoặc đã hết hạn' });
-    }
-    if (err.response?.status === 404) {
-      return res.status(404).json({ message: 'Repository không tìm thấy hoặc không có quyền truy cập' });
-    }
-    res.status(500).json({ message: 'Sync GitHub thất bại: ' + err.message });
   }
 };
