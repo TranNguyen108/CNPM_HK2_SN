@@ -2,14 +2,31 @@ const { Op, fn, col } = require('sequelize');
 const { CommitStat } = require('../models/commitStat.model');
 const { GroupMember } = require('../models/groupMember.model');
 const { User } = require('../models/user.model');
+const { Task } = require('../models/task.model');
 const { ensureGroupAccess } = require('../utils/groupAccess');
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_SIZE = 10;
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_HEATMAP_MONTHS = 6;
+const DONE_STATUSES = ['done', 'closed', 'resolved', 'complete', 'completed'];
+const TASK_PRIORITY_WEIGHTS = {
+  highest: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  lowest: 1
+};
 
 const toNumber = (value) => Number(value) || 0;
+
+const roundScore = (value) => Number((Number(value) || 0).toFixed(2));
+
+const normalizeText = (value) => String(value || '').trim().toLowerCase();
+
+const isDoneStatus = (status) => DONE_STATUSES.includes(normalizeText(status));
+
+const getPriorityWeight = (priority) => TASK_PRIORITY_WEIGHTS[normalizeText(priority)] || 1;
 
 const formatDate = (value) => {
   if (!value) return null;
@@ -132,6 +149,44 @@ const getGroupMembers = async (groupId) => {
   const userMap = new Map(users.map((user) => [user.id, user]));
 
   return { memberships, memberIds, membershipMap, userMap };
+};
+
+const buildContributionRankings = (items) => items
+  .map((item) => ({ ...item }))
+  .sort((a, b) => (
+    b.finalScore - a.finalScore
+    || b.taskScore - a.taskScore
+    || b.commitScore - a.commitScore
+    || String(a.name || '').localeCompare(String(b.name || ''))
+    || String(a.userId).localeCompare(String(b.userId))
+  ))
+  .map((item, index) => ({
+    ...item,
+    rank: index + 1
+  }));
+
+const normalizeScoreTotals = (items, key) => {
+  if (!items.length) return items;
+
+  const roundedItems = items.map((item) => ({
+    ...item,
+    [key]: roundScore(item[key])
+  }));
+
+  const total = roundScore(roundedItems.reduce((sum, item) => sum + toNumber(item[key]), 0));
+  const delta = roundScore(100 - total);
+
+  if (delta === 0) return roundedItems;
+
+  const targetIndex = roundedItems.findIndex((item) => toNumber(item[key]) > 0);
+  const fallbackIndex = targetIndex >= 0 ? targetIndex : 0;
+
+  roundedItems[fallbackIndex] = {
+    ...roundedItems[fallbackIndex],
+    [key]: roundScore(toNumber(roundedItems[fallbackIndex][key]) + delta)
+  };
+
+  return roundedItems;
 };
 
 const buildMemberBreakdown = async (groupId, memberIds, membershipMap, userMap) => {
@@ -429,6 +484,133 @@ exports.getGroupCommits = async (req, res) => {
       totalPages: Math.ceil(count / size) || 0,
       items: rows.map((item) => mapCommitItem(item, item.user_id ? userMap.get(item.user_id) : null))
     });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ message: err.message });
+  }
+};
+
+exports.getContributionScores = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const sprintName = String(req.query.sprintName || '').trim();
+    await ensureGroupAccess(req.user, groupId);
+
+    const { memberIds, userMap } = await getGroupMembers(groupId);
+    if (!memberIds.length) {
+      return res.json([]);
+    }
+
+    const taskWhere = {
+      group_id: groupId,
+      assignee_id: { [Op.in]: memberIds }
+    };
+
+    if (sprintName) {
+      taskWhere.sprint = sprintName;
+    }
+
+    const commitWhere = {
+      group_id: groupId,
+      user_id: { [Op.in]: memberIds }
+    };
+
+    if (sprintName) {
+      const sprintTasks = await Task.findAll({
+        where: {
+          group_id: groupId,
+          sprint: sprintName
+        },
+        attributes: ['id', 'jira_key'],
+        raw: true
+      });
+
+      const sprintTaskIds = sprintTasks.map((task) => task.id).filter(Boolean);
+      const sprintTaskKeys = sprintTasks.map((task) => task.jira_key).filter(Boolean);
+
+      if (!sprintTaskIds.length && !sprintTaskKeys.length) {
+        return res.json(buildContributionRankings(memberIds.map((userId) => {
+          const user = userMap.get(userId);
+          return {
+            userId,
+            name: user?.full_name || user?.email || user?.github_username || userId,
+            taskScore: 0,
+            commitScore: 0,
+            finalScore: 0
+          };
+        })));
+      }
+
+      commitWhere[Op.or] = [];
+      if (sprintTaskIds.length) {
+        commitWhere[Op.or].push({ task_id: { [Op.in]: sprintTaskIds } });
+      }
+      if (sprintTaskKeys.length) {
+        commitWhere[Op.or].push({ task_key: { [Op.in]: sprintTaskKeys } });
+      }
+    }
+
+    const [tasks, commitStats] = await Promise.all([
+      Task.findAll({
+        where: taskWhere,
+        attributes: ['assignee_id', 'status', 'priority'],
+        raw: true
+      }),
+      CommitStat.findAll({
+        where: commitWhere,
+        attributes: [
+          'user_id',
+          [fn('COUNT', col('id')), 'commitCount']
+        ],
+        group: ['user_id'],
+        raw: true
+      })
+    ]);
+
+    const taskWeightByUser = new Map();
+    let totalTaskWeight = 0;
+
+    tasks.forEach((task) => {
+      if (!isDoneStatus(task.status) || !task.assignee_id) return;
+      const weight = getPriorityWeight(task.priority);
+      totalTaskWeight += weight;
+      taskWeightByUser.set(task.assignee_id, (taskWeightByUser.get(task.assignee_id) || 0) + weight);
+    });
+
+    const commitCountByUser = new Map();
+    let totalTeamCommits = 0;
+
+    commitStats.forEach((item) => {
+      const commitCount = toNumber(item.commitCount);
+      commitCountByUser.set(item.user_id, commitCount);
+      totalTeamCommits += commitCount;
+    });
+
+    const rawItems = memberIds.map((userId) => {
+      const user = userMap.get(userId);
+      const weightedTaskCount = taskWeightByUser.get(userId) || 0;
+      const memberCommits = commitCountByUser.get(userId) || 0;
+      const taskScore = totalTaskWeight ? (weightedTaskCount / totalTaskWeight) * 100 : 0;
+      const commitScore = totalTeamCommits ? (memberCommits / totalTeamCommits) * 100 : 0;
+      const finalScore = (taskScore * 0.6) + (commitScore * 0.4);
+
+      return {
+        userId,
+        name: user?.full_name || user?.email || user?.github_username || userId,
+        taskScore,
+        commitScore,
+        finalScore
+      };
+    });
+
+    const items = normalizeScoreTotals(
+      normalizeScoreTotals(
+        normalizeScoreTotals(rawItems, 'taskScore'),
+        'commitScore'
+      ),
+      'finalScore'
+    );
+
+    res.json(buildContributionRankings(items));
   } catch (err) {
     res.status(err.statusCode || 500).json({ message: err.message });
   }
