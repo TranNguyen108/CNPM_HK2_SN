@@ -68,4 +68,8 @@ export const statsApi = {
   // Personal stats for a specific user (self or ADMIN only)
   getPersonalStats: (userId, params) =>
     axiosClient.get(`/stats/user/${userId}/personal`, { params }),
+
+  // Contribution score by member from Jira tasks + GitHub commits
+  getContributionScores: (groupId, sprintName) =>
+    axiosClient.get(`/contribution/${groupId}`, { params: sprintName ? { sprintName } : {} }),
 };
