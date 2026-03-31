@@ -69,3 +69,75 @@ Supporting Tool for Requirements and Project Progress Management — SWP391
 - Mỗi PR chỉ tập trung vào **một tính năng hoặc một bug** để dễ review.
 - Trạng thái Jira issue phải được cập nhật **tương ứng** với tiến độ code thực tế.
 
+---
+
+## Backend Production Deployment
+
+### 1. Mục tiêu
+
+Backend đã được chuẩn bị để deploy lên **Railway** hoặc **Render** với các yêu cầu production cơ bản:
+- Hỗ trợ `DATABASE_URL`
+- Hỗ trợ SSL cho cloud database
+- CORS chỉ cho phép frontend domain
+- Không dùng AES secret mặc định trong production
+- Có health check endpoint: `GET /health`
+
+### 2. Environment Variables cần cấu hình
+
+Tham khảo file `backend/.env.example`.
+
+- `PORT=3000`
+- `NODE_ENV=production`
+- `DATABASE_URL=...`
+- `DB_DIALECT=mysql`
+- `DB_SSL=true`
+- `JWT_SECRET=...`
+- `JWT_EXPIRES_IN=1d`
+- `JWT_REFRESH_SECRET=...`
+- `JWT_REFRESH_EXPIRES_IN=7d`
+- `AES_KEY=...`
+- `CORS_ORIGIN=https://your-frontend.vercel.app`
+
+Ghi chú:
+- Nếu không dùng `DATABASE_URL`, backend vẫn hỗ trợ bộ biến `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`.
+- Không commit secret thật lên GitHub.
+
+### 3. Checklist deploy trên Railway/Render
+
+1. Tạo service database MySQL hoặc PostgreSQL trên Railway/Render.
+2. Tạo web service mới từ GitHub repo.
+3. Chọn Root Directory là `backend`.
+4. Build command: `npm install`
+5. Start command: `npm start`
+6. Thêm toàn bộ Environment Variables ở mục trên.
+7. Cấu hình `CORS_ORIGIN` bằng đúng URL frontend trên Vercel.
+8. Sau khi deploy xong, kiểm tra:
+   - `GET /`
+   - `GET /health`
+   - các API auth
+   - các API tasks, stats, sync, notification
+
+### 4. Auto deploy
+
+- Railway/Render đều có thể bật auto deploy khi có push mới lên `main`.
+- Khuyến nghị:
+  - merge code vào `main`
+  - để platform tự redeploy
+  - theo dõi log boot để chắc chắn bước connect DB và schema sync thành công
+
+### 5. Production URL
+
+- Backend production URL: `TODO`
+- Frontend production URL: `TODO`
+
+### 6. Acceptance mapping
+
+- `Backend có URL public, gọi được từ Postman`
+  - sau deploy sẽ dùng domain Railway/Render
+- `Database migrate thành công trên production`
+  - app tự `connectDB`, `ensureSchema`, và `sync` khi boot
+- `Không có secret key nào commit lên GitHub`
+  - dùng env vars, không commit secret thật
+- `CORS không block frontend Vercel`
+  - backend đã đọc `CORS_ORIGIN` để whitelist domain frontend
+

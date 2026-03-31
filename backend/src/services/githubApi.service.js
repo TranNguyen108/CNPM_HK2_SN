@@ -12,6 +12,18 @@ class GitHubApiService {
       : null;
     this.token = raw && raw.length ? raw : null;
     this.baseUrl = 'https://api.github.com';
+
+    // Octokit support
+    this.octokitPromise = this.token ? GitHubApiService._createOctokit(this.token) : null;
+  }
+
+  static async _createOctokit(token) {
+    const { Octokit } = await import('@octokit/rest');
+    return new Octokit({ auth: token, userAgent: 'CNPM-App/1.0' });
+  }
+
+  async getClient() {
+    return this.octokitPromise;
   }
 
   _headers() {
@@ -23,14 +35,6 @@ class GitHubApiService {
     return headers;
   }
 
-  /**
-   * Fetch a single page of commits
-   * @param {object} opts
-   * @param {string} [opts.since]    ISO date string
-   * @param {string} [opts.until]    ISO date string
-   * @param {number} [opts.per_page] default 100
-   * @param {number} [opts.page]     default 1
-   */
   async fetchCommits({ since, until, per_page = 100, page = 1 } = {}) {
     const params = { per_page, page };
     if (since) params.since = since;
@@ -43,10 +47,6 @@ class GitHubApiService {
     return data;
   }
 
-  /**
-   * Fetch all commits since N days ago (auto-paginate, max 1000)
-   * @param {number} days
-   */
   async fetchAllCommitsSince(days = 90) {
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -64,10 +64,41 @@ class GitHubApiService {
       all = all.concat(batch);
       if (batch.length < 100) break;
       page++;
-      if (page > 10) break; // safety: cap at 1 000 commits
+      if (page > 10) break;
     }
 
     return all;
+  }
+
+  async getRepo(owner, repo) {
+    const octokit = await this.getClient();
+    const response = await octokit.repos.get({ owner, repo });
+    return response.data;
+  }
+
+  async getContributors(owner, repo) {
+    const octokit = await this.getClient();
+    const response = await octokit.repos.listContributors({ owner, repo, per_page: 100 });
+    return response.data || [];
+  }
+
+  async listCommits(owner, repo, options = {}) {
+    const octokit = await this.getClient();
+    const response = await octokit.repos.listCommits({
+      owner,
+      repo,
+      per_page: options.per_page || 100,
+      page: options.page || 1,
+      since: options.since,
+      until: options.until
+    });
+    return response.data || [];
+  }
+
+  async getCommitDetail(owner, repo, sha) {
+    const octokit = await this.getClient();
+    const response = await octokit.repos.getCommit({ owner, repo, ref: sha });
+    return response.data;
   }
 }
 

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: cnpm-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
