@@ -1,13 +1,24 @@
 const express = require('express');
 const cors = require('cors');
 const { DataTypes } = require('sequelize');
-require('dotenv').config();
 const { connectDB, sequelize } = require('./config/database');
+const { parseAllowedOrigins, validateRuntimeEnv } = require('./config/env');
 const { startJiraSyncJob } = require('./jobs/jiraSync.job');
 const { startGithubSyncJob } = require('./jobs/githubSync.job');
 
 const app = express();
-app.use(cors());
+const allowedOrigins = parseAllowedOrigins();
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (!allowedOrigins.length || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  }
+}));
 app.use(express.json());
 
 const ensureSchema = async () => {
@@ -195,16 +206,20 @@ app.get('/', (req, res) => {
   res.json({ message: 'SWP391 Backend API is running!' });
 });
 
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/sync', require('./routes/sync.routes'));
 app.use('/api', require('./routes/tasks.routes'));
 app.use('/api', require('./routes/commitStats.routes'));
-app.use('/api', require('./routes/commitStats.routes'));
 app.use('/api', require('./routes/export.routes'));
 app.use('/api', require('./routes/srs.routes'));
 app.use('/api', require('./routes/notification.routes'));
 const PORT = process.env.PORT || 3000;
+validateRuntimeEnv();
 initApp()
   .then(() => {
     app.listen(PORT, () => {

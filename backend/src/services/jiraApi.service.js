@@ -1,11 +1,17 @@
 const axios = require('axios');
 const CryptoJS = require('crypto-js');
 
-const AES_KEY = process.env.AES_KEY || 'project_management_aes_secret_key!!';
+const getAesKey = () => {
+  if (!process.env.AES_KEY) {
+    throw new Error('AES_KEY is required');
+  }
+
+  return process.env.AES_KEY;
+};
 
 class JiraApiService {
   constructor(config) {
-    const token = CryptoJS.AES.decrypt(config.access_token_encrypted, AES_KEY).toString(CryptoJS.enc.Utf8);
+    const token = CryptoJS.AES.decrypt(config.access_token_encrypted, getAesKey()).toString(CryptoJS.enc.Utf8);
     this.baseUrl = `https://${config.jira_domain}`;
     this.headers = {
       Authorization: `Basic ${Buffer.from(`admin:${token}`).toString('base64')}`,

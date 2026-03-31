@@ -7,9 +7,15 @@ const CryptoJS = require('crypto-js');
 const axios = require('axios');
 const { Op } = require('sequelize');
 
-const AES_KEY = process.env.AES_KEY || 'project_management_aes_secret_key!!';
-const encrypt = (text) => CryptoJS.AES.encrypt(text, AES_KEY).toString();
-const decrypt = (cipher) => CryptoJS.AES.decrypt(cipher, AES_KEY).toString(CryptoJS.enc.Utf8);
+const getAesKey = () => {
+  if (!process.env.AES_KEY) {
+    throw new Error('AES_KEY is required');
+  }
+
+  return process.env.AES_KEY;
+};
+const encrypt = (text) => CryptoJS.AES.encrypt(text, getAesKey()).toString();
+const decrypt = (cipher) => CryptoJS.AES.decrypt(cipher, getAesKey()).toString(CryptoJS.enc.Utf8);
 
 // ===== DASHBOARD STATS =====
 exports.getStats = async (req, res) => {
