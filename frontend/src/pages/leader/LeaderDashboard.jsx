@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -6,17 +6,19 @@ import {
   Card,
   Row,
   Col,
-  Spin,
+  Skeleton,
   Tag,
   Button,
   Empty,
   Space,
   Statistic,
+  Alert,
 } from 'antd';
 import {
   TeamOutlined,
   AppstoreOutlined,
   FundOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { tasksApi } from '../../api/tasksApi';
 import { useAuth } from '../../auth/AuthContext';
@@ -25,8 +27,20 @@ export default function LeaderDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  // Fetch my groups (for names)
+  const { data: myGroupsData = [] } = useQuery({
+    queryKey: ['my-groups'],
+    queryFn: () => tasksApi.getMyGroups().then((r) => r.data),
+    staleTime: 300_000,
+  });
+
+  const groupNameMap = useMemo(
+    () => new Map(myGroupsData.map((g) => [g.id, g.name])),
+    [myGroupsData]
+  );
+
   // Fetch tasks the current user is part of — no groupId means backend returns all accessible groups' tasks
-  const { data: tasksData, isLoading } = useQuery({
+  const { data: tasksData, isLoading, isError, refetch } = useQuery({
     queryKey: ['my-tasks-all'],
     queryFn: () => tasksApi.getMyTasks({ size: 200 }).then((r) => r.data),
   });
@@ -72,9 +86,28 @@ export default function LeaderDashboard() {
       </Card>
 
       {isLoading ? (
-        <div style={{ textAlign: 'center', padding: 48 }}>
-          <Spin size="large" />
-        </div>
+        <>
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            {[1, 2, 3].map((k) => (
+              <Col key={k} xs={24} sm={8}>
+                <Card><Skeleton active paragraph={{ rows: 2 }} /></Card>
+              </Col>
+            ))}
+          </Row>
+          <Skeleton active paragraph={{ rows: 6 }} />
+        </>
+      ) : isError ? (
+        <Alert
+          type="error"
+          showIcon
+          message="Không thể tải dữ liệu"
+          description="Đã xảy ra lỗi khi kết nối server. Vui lòng thử lại."
+          action={
+            <Button size="small" icon={<ReloadOutlined />} onClick={() => refetch()}>
+              Thử lại
+            </Button>
+          }
+        />
       ) : (
         <>
           {/* Personal stats */}
@@ -144,7 +177,7 @@ export default function LeaderDashboard() {
                         <Space>
                           <TeamOutlined />
                           <Typography.Text ellipsis style={{ maxWidth: 200 }}>
-                            Group: {g.id.slice(0, 8)}…
+                            {groupNameMap.get(g.id) || `Nhóm ${g.id.slice(0, 8)}…`}
                           </Typography.Text>
                         </Space>
                       }

@@ -30,11 +30,28 @@ export const syncApi = {
   // Manually trigger Jira sync for a group
   syncJira: (groupId) => axiosClient.post(`/sync/jira/${groupId}`),
 
+  // Manually trigger GitHub connectivity check / sync
+  syncGithub: (groupId) => axiosClient.post(`/sync/github/${groupId}`),
+
   // Get last 20 sync logs for a group
   getLogs: (groupId) => axiosClient.get(`/sync/logs/${groupId}`),
 
   // Get all tasks for a group via sync endpoint
   getGroupTasks: (groupId) => axiosClient.get(`/sync/tasks/${groupId}`),
+};
+
+export const githubApi = {
+  // Commit activity heatmap — last N days (default 90)
+  getCommitHeatmap: (groupId, days = 90) =>
+    axiosClient.get(`/stats/group/${groupId}/commits/heatmap`, { params: { days } }),
+
+  // N most recent commits (default 10)
+  getRecentCommits: (groupId, limit = 10) =>
+    axiosClient.get(`/stats/group/${groupId}/commits/recent`, { params: { limit } }),
+
+  // Commits grouped by group member email (last N days, default 30)
+  getCommitsByMember: (groupId, days = 30) =>
+    axiosClient.get(`/stats/group/${groupId}/commits/members`, { params: { days } }),
 };
 
 export const statsApi = {
@@ -51,8 +68,4 @@ export const statsApi = {
   // Personal stats for a specific user (self or ADMIN only)
   getPersonalStats: (userId, params) =>
     axiosClient.get(`/stats/user/${userId}/personal`, { params }),
-
-  // Contribution score by member from Jira tasks + GitHub commits
-  getContributionScores: (groupId, sprintName) =>
-    axiosClient.get(`/contribution/${groupId}`, { params: sprintName ? { sprintName } : {} }),
 };
