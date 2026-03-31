@@ -1,10 +1,16 @@
 const CryptoJS = require('crypto-js');
 
-const AES_KEY = process.env.AES_KEY || 'project_management_aes_secret_key!!';
+const getAesKey = () => {
+  if (!process.env.AES_KEY) {
+    throw new Error('AES_KEY is required');
+  }
+
+  return process.env.AES_KEY;
+};
 
 class GitHubApiService {
   constructor(config) {
-    const token = CryptoJS.AES.decrypt(config.access_token_encrypted, AES_KEY).toString(CryptoJS.enc.Utf8);
+    const token = CryptoJS.AES.decrypt(config.access_token_encrypted, getAesKey()).toString(CryptoJS.enc.Utf8);
 
     this.octokitPromise = GitHubApiService.createOctokit(token);
   }
