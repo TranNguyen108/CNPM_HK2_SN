@@ -2,6 +2,7 @@
 import ProtectedRoute from './components/ProtectedRoute';
 import AuthLayout from './layouts/AuthLayout';
 import AdminLayout from './layouts/AdminLayout';
+import { useAuth } from './auth/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -13,6 +14,11 @@ import LeaderDashboard from './pages/leader/LeaderDashboard';
 import LecturerDashboard from './pages/lecturer/LecturerDashboard';
 import LecturerGroupDetail from './pages/lecturer/LecturerGroupDetail';
 import MemberDashboard from './pages/member/MemberDashboard';
+
+function TeamDashboardRoute() {
+  const { user } = useAuth();
+  return user?.role === 'LEADER' ? <LeaderDashboard /> : <MemberDashboard />;
+}
 
 export default function App() {
   return (
@@ -35,11 +41,11 @@ export default function App() {
           </Route>
         </Route>
 
-        {/* Leader routes */}
-        <Route element={<ProtectedRoute allowedRoles={['LEADER']} />}>
+        {/* Leader + Member shared routes */}
+        <Route element={<ProtectedRoute allowedRoles={['LEADER', 'MEMBER']} />}>
           <Route element={<AdminLayout />}>
-            <Route path="/dashboard" element={<LeaderDashboard />} />
-            <Route path="/boards" element={<LeaderDashboard />} />
+            <Route path="/dashboard" element={<TeamDashboardRoute />} />
+            <Route path="/boards" element={<TeamDashboardRoute />} />
             <Route path="/board/:groupId" element={<KanbanBoard />} />
           </Route>
         </Route>
@@ -51,15 +57,6 @@ export default function App() {
             <Route path="/lecturer/groups" element={<LecturerDashboard />} />
             <Route path="/lecturer/groups/:groupId" element={<LecturerGroupDetail />} />
             <Route path="/lecturer" element={<Navigate to="/lecturer/dashboard" replace />} />
-          </Route>
-        </Route>
-
-        {/* Member routes */}
-        <Route element={<ProtectedRoute allowedRoles={['MEMBER']} />}>
-          <Route element={<AdminLayout />}>
-            <Route path="/dashboard" element={<MemberDashboard />} />
-            <Route path="/boards" element={<MemberDashboard />} />
-            <Route path="/board/:groupId" element={<KanbanBoard />} />
           </Route>
         </Route>
 

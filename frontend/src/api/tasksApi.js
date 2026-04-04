@@ -30,6 +30,9 @@ export const syncApi = {
   // Manually trigger Jira sync for a group
   syncJira: (groupId) => axiosClient.post(`/sync/jira/${groupId}`),
 
+  // Manually trigger GitHub sync for a group
+  syncGithub: (groupId) => axiosClient.post(`/sync/github/${groupId}`),
+
   // Get last 20 sync logs for a group
   getLogs: (groupId) => axiosClient.get(`/sync/logs/${groupId}`),
 

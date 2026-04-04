@@ -5,6 +5,7 @@ const JiraConfig = sequelize.define('JiraConfig', {
   id: { type: DataTypes.CHAR(36), primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   group_id: { type: DataTypes.CHAR(36), allowNull: false, unique: true },
   jira_domain: DataTypes.STRING,
+  jira_email: DataTypes.STRING,
   project_key: DataTypes.STRING,
   access_token_encrypted: DataTypes.TEXT,
   is_active: { type: DataTypes.TINYINT, defaultValue: 1 },

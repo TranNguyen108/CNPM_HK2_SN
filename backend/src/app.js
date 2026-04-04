@@ -74,6 +74,14 @@ const ensureSchema = async () => {
 
   const tasksTable = await queryInterface.describeTable('tasks').catch(() => null);
   if (tasksTable) {
+    const normalizeStringColumn = async (columnName, type, extra = {}) => {
+      await queryInterface.changeColumn('tasks', columnName, {
+        type,
+        allowNull: true,
+        ...extra
+      });
+    };
+
     if (!tasksTable.description) {
       await queryInterface.addColumn('tasks', 'description', {
         type: DataTypes.TEXT('long'),
@@ -101,6 +109,30 @@ const ensureSchema = async () => {
         allowNull: true
       });
     }
+
+    if (!tasksTable.assignee_email) {
+      await queryInterface.addColumn('tasks', 'assignee_email', {
+        type: DataTypes.STRING(255),
+        allowNull: true
+      });
+    }
+
+    await normalizeStringColumn('jira_key', DataTypes.STRING(50), { allowNull: false });
+    await normalizeStringColumn('jira_issue_id', DataTypes.STRING(50));
+    await normalizeStringColumn('issue_type', DataTypes.STRING(100));
+    await normalizeStringColumn('status', DataTypes.STRING(100));
+    await normalizeStringColumn('priority', DataTypes.STRING(50));
+    await normalizeStringColumn('epic_key', DataTypes.STRING(50));
+    await normalizeStringColumn('epic_name', DataTypes.STRING(255));
+    await normalizeStringColumn('assignee_email', DataTypes.STRING(255));
+  }
+
+  const jiraConfigsTable = await queryInterface.describeTable('jira_configs').catch(() => null);
+  if (jiraConfigsTable && !jiraConfigsTable.jira_email) {
+    await queryInterface.addColumn('jira_configs', 'jira_email', {
+      type: DataTypes.STRING(255),
+      allowNull: true
+    });
   }
 
   const notificationsTable = await queryInterface.describeTable('notifications').catch(() => null);

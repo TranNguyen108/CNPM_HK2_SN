@@ -154,18 +154,29 @@ export default function MemberDashboard() {
     queryFn: () => tasksApi.getMyGroups().then((r) => r.data),
   });
 
+  const normalizedGroups = useMemo(
+    () => (Array.isArray(groups) ? groups : []),
+    [groups]
+  );
+
   // Auto-select first group
   useEffect(() => {
-    if (groups.length > 0 && !selectedGroupId) {
-      setSelectedGroupId(groups[0].id);
+    if (normalizedGroups.length > 0 && !selectedGroupId) {
+      setSelectedGroupId(normalizedGroups[0].id);
     }
-  }, [groups, selectedGroupId]);
+  }, [normalizedGroups, selectedGroupId]);
 
-  const { data: sprints = [] } = useQuery({
+  const { data: sprintsResponse } = useQuery({
     queryKey: ['sprints', selectedGroupId],
     queryFn: () => tasksApi.getSprints(selectedGroupId).then((r) => r.data),
     enabled: !!selectedGroupId,
   });
+
+  const sprints = useMemo(() => {
+    if (Array.isArray(sprintsResponse)) return sprintsResponse;
+    if (Array.isArray(sprintsResponse?.items)) return sprintsResponse.items;
+    return [];
+  }, [sprintsResponse]);
 
   const { data: tasksData, isLoading: tasksLoading } = useQuery({
     queryKey: ['member-my-tasks', selectedGroupId],
@@ -258,7 +269,7 @@ export default function MemberDashboard() {
     return <Spin size="large" style={{ display: 'block', marginTop: 120, textAlign: 'center' }} />;
   }
 
-  if (!groups.length) {
+  if (!normalizedGroups.length) {
     return (
       <Empty
         description="Bạn chưa thuộc nhóm nào. Vui lòng liên hệ admin."
@@ -299,7 +310,7 @@ export default function MemberDashboard() {
               }}
               style={{ minWidth: 180 }}
               placeholder="Chọn nhóm"
-              options={groups.map((g) => ({ value: g.id, label: g.name }))}
+              options={normalizedGroups.map((g) => ({ value: g.id, label: g.name }))}
             />
             <Select
               value={selectedSprint}
