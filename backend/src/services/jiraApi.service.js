@@ -12,9 +12,15 @@ const getAesKey = () => {
 class JiraApiService {
   constructor(config) {
     const token = CryptoJS.AES.decrypt(config.access_token_encrypted, getAesKey()).toString(CryptoJS.enc.Utf8);
+    const jiraEmail = String(config.jira_email || '').trim();
+
+    if (!jiraEmail) {
+      throw new Error('Jira email is required');
+    }
+
     this.baseUrl = `https://${config.jira_domain}`;
     this.headers = {
-      Authorization: `Basic ${Buffer.from(`admin:${token}`).toString('base64')}`,
+      Authorization: `Basic ${Buffer.from(`${jiraEmail}:${token}`).toString('base64')}`,
       'Content-Type': 'application/json',
       Accept: 'application/json'
     };
@@ -32,36 +38,41 @@ class JiraApiService {
 
   /**
    * Lấy issues theo project + JQL với pagination
-   * GET /rest/api/3/search?jql=project=X
+   * Jira Cloud mới dùng /rest/api/3/search/jql thay cho endpoint cũ /search
    */
   async fetchIssues(projectKey) {
     const allIssues = [];
-    let startAt = 0;
     const maxResults = 50;
+    let nextPageToken = null;
+    let isLast = false;
+    const fields = [
+      'summary', 'description', 'issuetype', 'status', 'priority', 'assignee', 'parent',
+      'customfield_10020', // Sprint
+      'customfield_10016', // Story Points
+      'customfield_10014', // Epic Link (common Jira Cloud)
+      'customfield_10011', // Epic Name (common Jira Cloud)
+      'story_points', 'duedate'
+    ];
 
-    while (true) {
-      const res = await axios.get(`${this.baseUrl}/rest/api/3/search`, {
+    while (!isLast) {
+      const res = await axios.post(`${this.baseUrl}/rest/api/3/search/jql`, {
+        jql: `project=${projectKey} ORDER BY created ASC`,
+        maxResults,
+        fields,
+        fieldsByKeys: false,
+        nextPageToken: nextPageToken || undefined
+      }, {
         headers: this.headers,
-        params: {
-          jql: `project=${projectKey} ORDER BY created ASC`,
-          startAt,
-          maxResults,
-          fields: [
-            'summary', 'description', 'issuetype', 'status', 'priority', 'assignee', 'parent',
-            'customfield_10020', // Sprint
-            'customfield_10016', // Story Points
-            'customfield_10014', // Epic Link (common Jira Cloud)
-            'customfield_10011', // Epic Name (common Jira Cloud)
-            'story_points', 'duedate'
-          ].join(',')
-        }
       });
 
-      const { issues, total } = res.data;
+      const issues = Array.isArray(res.data?.issues) ? res.data.issues : [];
       allIssues.push(...issues);
-      startAt += issues.length;
+      nextPageToken = res.data?.nextPageToken || null;
+      isLast = Boolean(res.data?.isLast) || !nextPageToken;
 
-      if (startAt >= total || issues.length === 0) break;
+      if (!issues.length && !nextPageToken) {
+        break;
+      }
     }
 
     return allIssues;

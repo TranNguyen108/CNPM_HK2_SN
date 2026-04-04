@@ -189,11 +189,17 @@ exports.assignLecturer = async (req, res) => {
 // ===== JIRA CONFIG =====
 exports.saveJiraConfig = async (req, res) => {
   try {
-    const { jira_domain, project_key, access_token } = req.body;
-    if (!jira_domain || !project_key || !access_token)
+    const { jira_domain, jira_email, project_key, access_token } = req.body;
+    if (!jira_domain || !jira_email || !project_key || !access_token)
       return res.status(400).json({ message: 'Missing required fields' });
     const encrypted = encrypt(access_token);
-    await JiraConfig.upsert({ group_id: req.params.id, jira_domain, project_key, access_token_encrypted: encrypted });
+    await JiraConfig.upsert({
+      group_id: req.params.id,
+      jira_domain: String(jira_domain).trim(),
+      jira_email: String(jira_email).trim(),
+      project_key: String(project_key).trim(),
+      access_token_encrypted: encrypted
+    });
     res.json({ message: 'Jira config saved', status: 'configured' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
@@ -203,8 +209,15 @@ exports.testJira = async (req, res) => {
     const config = await JiraConfig.findOne({ where: { group_id: req.params.id } });
     if (!config) return res.status(404).json({ success: false, message: 'Jira not configured' });
     const token = decrypt(config.access_token_encrypted);
+    if (!config.jira_email) {
+      return res.json({ success: false, message: 'Jira email is required' });
+    }
     await axios.get(`https://${config.jira_domain}/rest/api/3/project/${config.project_key}`, {
-      headers: { Authorization: `Basic ${Buffer.from(`admin:${token}`).toString('base64')}`, 'Content-Type': 'application/json' }
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${config.jira_email}:${token}`).toString('base64')}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      }
     });
     await config.update({ last_synced_at: new Date() });
     res.json({ success: true, message: 'Jira connection successful' });
@@ -255,6 +268,7 @@ exports.getJiraConfig = async (req, res) => {
     if (!config) return res.json(null);
     res.json({
       jira_domain: config.jira_domain,
+      jira_email: config.jira_email,
       project_key: config.project_key,
       is_active: config.is_active,
       last_synced_at: config.last_synced_at,

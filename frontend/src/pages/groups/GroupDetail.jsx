@@ -4,6 +4,7 @@ import { Tabs, Table, Button, Modal, Form, Input, Select, Space, Popconfirm, Tag
 import { PlusOutlined, DeleteOutlined, ArrowLeftOutlined, LinkOutlined, GithubOutlined, AppstoreOutlined, FileWordOutlined, EyeOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../../api/adminApi';
+import { syncApi } from '../../api/tasksApi';
 import dayjs from 'dayjs';
 
 const { Title, Text, Paragraph } = Typography;
@@ -121,6 +122,8 @@ function MembersTab({ groupId }) {
 function JiraConfigTab({ groupId }) {
   const [form] = Form.useForm();
   const [testResult, setTestResult] = useState(null);
+  const [syncResult, setSyncResult] = useState(null);
+  const queryClient = useQueryClient();
 
   const { data: existingConfig, isLoading: configLoading } = useQuery({
     queryKey: ['jiraConfig', groupId],
@@ -139,6 +142,20 @@ function JiraConfigTab({ groupId }) {
     onError: (err) => setTestResult({ success: false, message: err.response?.data?.message || 'Lỗi kết nối' }),
   });
 
+  const syncMutation = useMutation({
+    mutationFn: () => syncApi.syncJira(groupId),
+    onSuccess: (res) => {
+      setSyncResult({ success: true, ...res.data });
+      queryClient.invalidateQueries({ queryKey: ['jiraConfig', groupId] });
+      message.success('Đồng bộ Jira thành công');
+    },
+    onError: (err) => {
+      const errorMessage = err.response?.data?.message || 'Đồng bộ Jira thất bại';
+      setSyncResult({ success: false, message: errorMessage });
+      message.error(errorMessage);
+    },
+  });
+
   if (configLoading) return <Spin />;
 
   return (
@@ -146,6 +163,7 @@ function JiraConfigTab({ groupId }) {
       {existingConfig && (
         <Descriptions size="small" bordered style={{ marginBottom: 16 }} column={1}>
           <Descriptions.Item label="Domain">{existingConfig.jira_domain}</Descriptions.Item>
+          <Descriptions.Item label="Jira Email">{existingConfig.jira_email || '-'}</Descriptions.Item>
           <Descriptions.Item label="Project Key">{existingConfig.project_key}</Descriptions.Item>
           <Descriptions.Item label="Trạng thái">
             <Tag color={existingConfig.is_active ? 'green' : 'red'}>{existingConfig.is_active ? 'Active' : 'Inactive'}</Tag>
@@ -160,10 +178,17 @@ function JiraConfigTab({ groupId }) {
         layout="vertical"
         onFinish={(v) => saveMutation.mutate(v)}
         style={{ maxWidth: 500 }}
-        initialValues={existingConfig ? { jira_domain: existingConfig.jira_domain, project_key: existingConfig.project_key } : {}}
+        initialValues={existingConfig ? {
+          jira_domain: existingConfig.jira_domain,
+          jira_email: existingConfig.jira_email,
+          project_key: existingConfig.project_key
+        } : {}}
       >
         <Form.Item name="jira_domain" label="Jira Domain" rules={[{ required: true, message: 'Nhập Jira domain' }]}>
           <Input placeholder="your-domain.atlassian.net" />
+        </Form.Item>
+        <Form.Item name="jira_email" label="Jira Email" rules={[{ required: true, message: 'Nhập email Atlassian' }, { type: 'email', message: 'Email không hợp lệ' }]}>
+          <Input placeholder="you@example.com" />
         </Form.Item>
         <Form.Item name="project_key" label="Project Key" rules={[{ required: true, message: 'Nhập project key' }]}>
           <Input placeholder="VD: SWP391" />
@@ -174,12 +199,30 @@ function JiraConfigTab({ groupId }) {
         <Space>
           <Button type="primary" htmlType="submit" loading={saveMutation.isPending} icon={<LinkOutlined />}>Lưu cấu hình</Button>
           <Button onClick={() => testMutation.mutate()} loading={testMutation.isPending}>Test kết nối</Button>
+          <Button
+            type="dashed"
+            onClick={() => syncMutation.mutate()}
+            loading={syncMutation.isPending}
+            disabled={!existingConfig?.is_active}
+          >
+            Đồng bộ Jira
+          </Button>
         </Space>
         {testResult && (
           <Alert
             style={{ marginTop: 16 }}
             type={testResult.success ? 'success' : 'error'}
             message={testResult.message}
+            showIcon
+          />
+        )}
+        {syncResult && (
+          <Alert
+            style={{ marginTop: 16 }}
+            type={syncResult.success ? 'success' : 'error'}
+            message={syncResult.success
+              ? `Đồng bộ Jira hoàn tất. New: ${syncResult.newTasks || 0}, Updated: ${syncResult.updatedTasks || 0}, Total: ${syncResult.totalFetched || 0}`
+              : syncResult.message}
             showIcon
           />
         )}
@@ -192,6 +235,8 @@ function JiraConfigTab({ groupId }) {
 function GithubConfigTab({ groupId }) {
   const [form] = Form.useForm();
   const [testResult, setTestResult] = useState(null);
+  const [syncResult, setSyncResult] = useState(null);
+  const queryClient = useQueryClient();
 
   const { data: existingConfig, isLoading: configLoading } = useQuery({
     queryKey: ['githubConfig', groupId],
@@ -208,6 +253,20 @@ function GithubConfigTab({ groupId }) {
     mutationFn: () => adminApi.testGithub(groupId),
     onSuccess: (res) => setTestResult(res.data),
     onError: (err) => setTestResult({ success: false, message: err.response?.data?.message || 'Lỗi kết nối' }),
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => syncApi.syncGithub(groupId),
+    onSuccess: (res) => {
+      setSyncResult({ success: true, ...res.data });
+      queryClient.invalidateQueries({ queryKey: ['githubConfig', groupId] });
+      message.success('Đồng bộ GitHub thành công');
+    },
+    onError: (err) => {
+      const errorMessage = err.response?.data?.message || 'Đồng bộ GitHub thất bại';
+      setSyncResult({ success: false, message: errorMessage });
+      message.error(errorMessage);
+    },
   });
 
   if (configLoading) return <Spin />;
@@ -245,12 +304,30 @@ function GithubConfigTab({ groupId }) {
         <Space>
           <Button type="primary" htmlType="submit" loading={saveMutation.isPending} icon={<GithubOutlined />}>Lưu cấu hình</Button>
           <Button onClick={() => testMutation.mutate()} loading={testMutation.isPending}>Test kết nối</Button>
+          <Button
+            type="dashed"
+            onClick={() => syncMutation.mutate()}
+            loading={syncMutation.isPending}
+            disabled={!existingConfig?.is_active}
+          >
+            Đồng bộ GitHub
+          </Button>
         </Space>
         {testResult && (
           <Alert
             style={{ marginTop: 16 }}
             type={testResult.success ? 'success' : 'error'}
             message={testResult.message}
+            showIcon
+          />
+        )}
+        {syncResult && (
+          <Alert
+            style={{ marginTop: 16 }}
+            type={syncResult.success ? 'success' : 'error'}
+            message={syncResult.success
+              ? `Đồng bộ GitHub hoàn tất. New: ${syncResult.newCommits || 0}, Updated: ${syncResult.updatedCommits || 0}, Total: ${syncResult.totalFetched || 0}`
+              : syncResult.message}
             showIcon
           />
         )}

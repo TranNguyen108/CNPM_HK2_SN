@@ -258,14 +258,22 @@ export default function MemberDashboard() {
     queryFn: () => tasksApi.getMyGroups().then((r) => r.data),
   });
 
-  // Derive effective group: user-selected or first group
-  const effectiveGroupId = selectedGroupId ?? groups[0]?.id ?? null;
+  const normalizedGroups = useMemo(() => (Array.isArray(groups) ? groups : []), [groups]);
 
-  const { data: sprints = [] } = useQuery({
+  // Derive effective group: user-selected or first group
+  const effectiveGroupId = selectedGroupId ?? normalizedGroups[0]?.id ?? null;
+
+  const { data: sprintsResponse } = useQuery({
     queryKey: ['sprints', effectiveGroupId],
     queryFn: () => tasksApi.getSprints(effectiveGroupId).then((r) => r.data),
     enabled: !!effectiveGroupId,
   });
+
+  const sprints = useMemo(() => {
+    if (Array.isArray(sprintsResponse)) return sprintsResponse;
+    if (Array.isArray(sprintsResponse?.items)) return sprintsResponse.items;
+    return [];
+  }, [sprintsResponse]);
 
   const { data: tasksData, isLoading: tasksLoading } = useQuery({
     queryKey: ['member-my-tasks', effectiveGroupId],
@@ -426,7 +434,7 @@ export default function MemberDashboard() {
     );
   }
 
-  if (!groups.length) {
+  if (!normalizedGroups.length) {
     return (
       <Empty
         description="Bạn chưa thuộc nhóm nào. Vui lòng liên hệ admin."
@@ -467,7 +475,7 @@ export default function MemberDashboard() {
               }}
               style={{ minWidth: 180 }}
               placeholder="Chọn nhóm"
-              options={groups.map((g) => ({ value: g.id, label: g.name }))}
+              options={normalizedGroups.map((g) => ({ value: g.id, label: g.name }))}
             />
             <Select
               value={selectedSprint}
