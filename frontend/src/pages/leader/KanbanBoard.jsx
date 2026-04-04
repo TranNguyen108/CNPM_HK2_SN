@@ -21,6 +21,10 @@ import {
   Segmented,
   Descriptions,
   Empty,
+  Alert,
+  Card,
+  Skeleton,
+  List,
 } from 'antd';
 import {
   SyncOutlined,
@@ -31,11 +35,29 @@ import {
   ArrowLeftOutlined,
   PlusOutlined,
   LinkOutlined,
+  GithubOutlined,
+  BranchesOutlined,
 } from '@ant-design/icons';
-import { tasksApi, syncApi } from '../../api/tasksApi';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartTooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import { tasksApi, syncApi, githubApi } from '../../api/tasksApi';
+import { statsApi } from '../../api/tasksApi';
 import { adminApi } from '../../api/adminApi';
 import { useAuth } from '../../auth/AuthContext';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/vi';
+
+dayjs.extend(relativeTime);
+dayjs.locale('vi');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -161,6 +183,147 @@ function TaskCard({ task, onClick, onDragStart, isDragging }) {
   );
 }
 
+// ─── GitHub Analytics Helpers ────────────────────────────────────────────────
+
+const HEAT_COLORS = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39'];
+
+function heatColor(count) {
+  if (!count) return HEAT_COLORS[0];
+  if (count <= 2) return HEAT_COLORS[1];
+  if (count <= 5) return HEAT_COLORS[2];
+  if (count <= 10) return HEAT_COLORS[3];
+  return HEAT_COLORS[4];
+}
+
+/**
+ * GitHub-style contribution heatmap.
+ * Rows = days-of-week (Mon→Sun), Columns = weeks (oldest→newest).
+ */
+function CommitHeatmap({ heatmap }) {
+  if (!heatmap?.length) {
+    return <Empty description="Chưa có dữ liệu commit" style={{ padding: 16 }} />;
+  }
+
+  const CELL = 13;
+  const GAP = 3;
+
+  // Pad so first cell lands on Mon (getDay: 0=Sun → mapped to 6, 1=Mon → 0, …)
+  const firstDate = new Date(heatmap[0].date + 'T00:00:00');
+  const firstDow = (firstDate.getDay() + 6) % 7; // 0=Mon … 6=Sun
+  const padded = [...Array(firstDow).fill(null), ...heatmap];
+
+  const weeks = [];
+  for (let i = 0; i < padded.length; i += 7) {
+    weeks.push(padded.slice(i, Math.min(i + 7, padded.length)));
+  }
+
+  const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: GAP }}>
+        {/* Day-of-week labels */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: GAP,
+            marginRight: 4,
+            paddingTop: CELL + GAP,
+          }}
+        >
+          {DAY_LABELS.map((label, i) => (
+            <div
+              key={i}
+              style={{
+                height: CELL,
+                lineHeight: `${CELL}px`,
+                fontSize: 9,
+                color: '#8c8c8c',
+                width: 26,
+                textAlign: 'right',
+              }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+
+        {/* Week columns */}
+        <div style={{ overflowX: 'auto' }}>
+          {/* Month labels row */}
+          <div style={{ display: 'flex', gap: GAP, marginBottom: GAP }}>
+            {weeks.map((week, wi) => {
+              const firstReal = week.find((c) => c !== null);
+              const isFirstOfMonth =
+                firstReal && new Date(firstReal.date + 'T00:00:00').getDate() <= 7;
+              return (
+                <div
+                  key={wi}
+                  style={{ width: CELL, height: CELL, fontSize: 9, color: '#8c8c8c', lineHeight: `${CELL}px` }}
+                >
+                  {isFirstOfMonth ? dayjs(firstReal.date).format('MMM') : ''}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Grid */}
+          <div style={{ display: 'flex', gap: GAP }}>
+            {weeks.map((week, wi) => (
+              <div key={wi} style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
+                {Array.from({ length: 7 }, (_, di) => {
+                  const cell = week[di];
+                  if (!cell) return <div key={di} style={{ width: CELL, height: CELL }} />;
+                  return (
+                    <Tooltip
+                      key={di}
+                      title={`${cell.count} commit${cell.count !== 1 ? 's' : ''} ngày ${cell.date}`}
+                      mouseEnterDelay={0}
+                    >
+                      <div
+                        style={{
+                          width: CELL,
+                          height: CELL,
+                          borderRadius: 2,
+                          backgroundColor: heatColor(cell.count),
+                          cursor: cell.count > 0 ? 'pointer' : 'default',
+                        }}
+                      />
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          marginTop: 8,
+          justifyContent: 'flex-end',
+          fontSize: 11,
+          color: '#8c8c8c',
+        }}
+      >
+        <span>Ít</span>
+        {HEAT_COLORS.map((c) => (
+          <div
+            key={c}
+            style={{ width: CELL, height: CELL, borderRadius: 2, backgroundColor: c, flexShrink: 0 }}
+          />
+        ))}
+        <span>Nhiều</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── KanbanBoard ─────────────────────────────────────────────────────────────
 
 export default function KanbanBoard() {
@@ -233,6 +396,39 @@ export default function KanbanBoard() {
     },
     enabled: !!groupId,
     retry: false,
+  });
+
+  // ── GitHub analytics queries (only fetched when GitHub tab is active)
+  const { data: heatmapData, isLoading: heatmapLoading } = useQuery({
+    queryKey: ['commit-heatmap', groupId],
+    queryFn: () => githubApi.getCommitHeatmap(groupId, 90).then((r) => r.data),
+    enabled: !!groupId && viewMode === 'github',
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const { data: recentCommitsData, isLoading: recentCommitsLoading } = useQuery({
+    queryKey: ['recent-commits', groupId],
+    queryFn: () => githubApi.getRecentCommits(groupId, 10).then((r) => r.data),
+    enabled: !!groupId && viewMode === 'github',
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const { data: commitsByMemberData, isLoading: commitsByMemberLoading } = useQuery({
+    queryKey: ['commits-by-member', groupId],
+    queryFn: () => githubApi.getCommitsByMember(groupId, 30).then((r) => r.data),
+    enabled: !!groupId && viewMode === 'github',
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const { data: memberStatsData } = useQuery({
+    queryKey: ['member-stats', groupId],
+    queryFn: () => statsApi.getMemberStats(groupId).then((r) => r.data),
+    enabled: !!groupId && viewMode === 'github',
+    staleTime: 60_000,
+    retry: 1,
   });
 
   // ── Task list with client-side priority filter
@@ -322,6 +518,19 @@ export default function KanbanBoard() {
       messageApi.error(`Đồng bộ thất bại: ${err.response?.data?.message || err.message}`),
   });
 
+  const syncGithubMutation = useMutation({
+    mutationFn: () => syncApi.syncGithub(groupId),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['commit-heatmap', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['recent-commits', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['commits-by-member', groupId] });
+      const d = res.data;
+      messageApi.success(`Sync GitHub thành công — ${d.repo}`);
+    },
+    onError: (err) =>
+      messageApi.error(`Sync GitHub thất bại: ${err.response?.data?.message || err.message}`),
+  });
+
   // ── Drag-and-drop handlers
   const handleDragStart = (taskId) => setDraggingId(taskId);
   const handleDragOver = (e, colKey) => {
@@ -371,6 +580,23 @@ export default function KanbanBoard() {
     ),
     value: m.id,
   }));
+
+  // ── Combined member data for grouped bar chart (commits + taskDone)
+  const combinedMemberData = useMemo(() => {
+    const commitMap = new Map(
+      (commitsByMemberData?.items || []).map((item) => [item.userId, item.commits]),
+    );
+    const statsItems = memberStatsData?.items || [];
+
+    if (!statsItems.length) return [];
+
+    return statsItems.map((m) => ({
+      name: (m.fullName || m.email || '').split(' ').slice(-1)[0], // last name only for brevity
+      fullName: m.fullName || m.email,
+      commits: commitMap.get(m.userId) ?? 0,
+      done: m.doneCount ?? 0,
+    }));
+  }, [commitsByMemberData, memberStatsData]);
 
   // ── Table columns (list view)
   const tableColumns = [
@@ -511,23 +737,22 @@ export default function KanbanBoard() {
         </Space>
 
         <Space wrap>
-          {isLeaderOrAdmin && (
-            <Button
-              icon={<SyncOutlined spin={syncMutation.isPending} />}
-              loading={syncMutation.isPending}
-              onClick={() => syncMutation.mutate()}
-              type="primary"
-              ghost
-            >
-              Sync Jira
-            </Button>
-          )}
+          <Button
+            icon={<SyncOutlined spin={syncMutation.isPending} />}
+            loading={syncMutation.isPending}
+            onClick={() => syncMutation.mutate()}
+            type="primary"
+            ghost
+          >
+            Sync Jira
+          </Button>
           <Segmented
             value={viewMode}
             onChange={setViewMode}
             options={[
               { value: 'board', icon: <AppstoreOutlined />, label: 'Board' },
               { value: 'list', icon: <UnorderedListOutlined />, label: 'List' },
+              { value: 'github', icon: <GithubOutlined />, label: 'GitHub' },
             ]}
           />
         </Space>
@@ -625,8 +850,209 @@ export default function KanbanBoard() {
         </div>
       )}
 
-      {/* ── Board / List ────────────────────────────────────────────────── */}
-      {tasksLoading ? (
+      {/* ── Board / List / GitHub ───────────────────────────────────────── */}
+      {viewMode === 'github' ? (
+        /* ── GitHub Analytics Panel */
+        <div>
+          {/* Section header */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 16,
+            }}
+          >
+            <Space>
+              <GithubOutlined style={{ fontSize: 18 }} />
+              <Typography.Title level={5} style={{ margin: 0 }}>
+                GitHub Analytics
+              </Typography.Title>
+              {heatmapData?.configured && (
+                <Tag color="green" icon={<BranchesOutlined />}>
+                  {heatmapData.repo}
+                </Tag>
+              )}
+            </Space>
+            <Button
+              type="primary"
+              icon={<SyncOutlined spin={syncGithubMutation.isPending} />}
+              loading={syncGithubMutation.isPending}
+              onClick={() => syncGithubMutation.mutate()}
+            >
+              Sync GitHub
+            </Button>
+          </div>
+
+          {heatmapData?.configured === false ? (
+            <Alert
+              type="info"
+              showIcon
+              message="GitHub chưa được cấu hình"
+              description="Liên hệ Admin để thiết lập tích hợp GitHub (repo_owner, repo_name, access token) cho nhóm này."
+              style={{ marginBottom: 16 }}
+            />
+          ) : (
+            <>
+              {/* ── Commit Heatmap ─────────────────────────────────────── */}
+              <Card
+                title={
+                  <Space>
+                    <span>Commit Activity</span>
+                    <Tag color="default">90 ngày qua</Tag>
+                  </Space>
+                }
+                style={{ marginBottom: 16 }}
+              >
+                {heatmapLoading ? (
+                  <Skeleton active paragraph={{ rows: 4 }} />
+                ) : (
+                  <CommitHeatmap heatmap={heatmapData?.heatmap} />
+                )}
+              </Card>
+
+              {/* ── Member Comparison + Recent Commits ─────────────────── */}
+              <Row gutter={[16, 16]}>
+                {/* Grouped Bar Chart */}
+                <Col xs={24} lg={14}>
+                  <Card
+                    title="So sánh đóng góp thành viên"
+                    extra={<Tag color="purple">Commits vs Task Done</Tag>}
+                    style={{ height: '100%' }}
+                  >
+                    {commitsByMemberLoading ? (
+                      <Skeleton active paragraph={{ rows: 5 }} />
+                    ) : combinedMemberData.length === 0 ? (
+                      <Empty description="Chưa có dữ liệu" />
+                    ) : (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart
+                          data={combinedMemberData}
+                          margin={{ top: 8, right: 16, left: 0, bottom: 24 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis
+                            dataKey="name"
+                            tick={{ fontSize: 11 }}
+                            angle={-20}
+                            textAnchor="end"
+                            interval={0}
+                          />
+                          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <RechartTooltip
+                            formatter={(value, name, props) => [
+                              value,
+                              name === 'commits' ? 'Commits' : 'Task Done',
+                            ]}
+                            labelFormatter={(label, payload) =>
+                              payload?.[0]?.payload?.fullName || label
+                            }
+                          />
+                          <Legend
+                            formatter={(value) =>
+                              value === 'commits' ? 'Commits' : 'Task Done'
+                            }
+                          />
+                          <Bar
+                            dataKey="commits"
+                            name="commits"
+                            fill="#722ed1"
+                            radius={[4, 4, 0, 0]}
+                          />
+                          <Bar
+                            dataKey="done"
+                            name="done"
+                            fill="#52c41a"
+                            radius={[4, 4, 0, 0]}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </Card>
+                </Col>
+
+                {/* Recent Commits Timeline */}
+                <Col xs={24} lg={10}>
+                  <Card
+                    title="10 Commit gần nhất"
+                    style={{ height: '100%' }}
+                    styles={{ body: { padding: '8px 16px' } }}
+                  >
+                    {recentCommitsLoading ? (
+                      <Skeleton active avatar paragraph={{ rows: 3 }} />
+                    ) : !recentCommitsData?.items?.length ? (
+                      <Empty description="Chưa có commit nào" />
+                    ) : (
+                      <List
+                        size="small"
+                        dataSource={recentCommitsData.items}
+                        renderItem={(commit) => (
+                          <List.Item style={{ padding: '8px 0' }}>
+                            <List.Item.Meta
+                              avatar={
+                                commit.author.avatarUrl ? (
+                                  <Avatar src={commit.author.avatarUrl} size={28} />
+                                ) : (
+                                  <Avatar
+                                    size={28}
+                                    style={{
+                                      backgroundColor: avatarColor(commit.author.email || commit.author.name),
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    {(commit.author.name || commit.author.email || '?')[0].toUpperCase()}
+                                  </Avatar>
+                                )
+                              }
+                              title={
+                                <Tooltip title={commit.message}>
+                                  <Typography.Text
+                                    ellipsis
+                                    style={{ fontSize: 12, maxWidth: 220, display: 'block' }}
+                                  >
+                                    {commit.message || '(no message)'}
+                                  </Typography.Text>
+                                </Tooltip>
+                              }
+                              description={
+                                <Space size={6} wrap>
+                                  <Tag
+                                    style={{ fontFamily: 'monospace', fontSize: 10, margin: 0 }}
+                                  >
+                                    {commit.sha}
+                                  </Tag>
+                                  <Typography.Text
+                                    type="secondary"
+                                    style={{ fontSize: 11 }}
+                                  >
+                                    {commit.author.date
+                                      ? dayjs(commit.author.date).fromNow()
+                                      : ''}
+                                  </Typography.Text>
+                                  {commit.url && (
+                                    <a
+                                      href={commit.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ fontSize: 11 }}
+                                    >
+                                      view
+                                    </a>
+                                  )}
+                                </Space>
+                              }
+                            />
+                          </List.Item>
+                        )}
+                      />
+                    )}
+                  </Card>
+                </Col>
+              </Row>
+            </>
+          )}
+        </div>
+      ) : tasksLoading ? (
         <div style={{ textAlign: 'center', padding: 72 }}>
           <Spin size="large" />
         </div>

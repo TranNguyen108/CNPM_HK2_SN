@@ -8,6 +8,7 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  FileWordOutlined,
   AppstoreOutlined,
   BellOutlined,
 } from '@ant-design/icons';
@@ -27,6 +28,7 @@ const adminMenuItems = [
 const leaderMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
   { key: '/boards', icon: <AppstoreOutlined />, label: 'Kanban Boards' },
+  { key: '/srs', icon: <FileWordOutlined />, label: 'Generate SRS' },
 ];
 
 const lecturerMenuItems = [

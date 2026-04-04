@@ -40,6 +40,20 @@ export const syncApi = {
   getGroupTasks: (groupId) => axiosClient.get(`/sync/tasks/${groupId}`),
 };
 
+export const githubApi = {
+  // Commit activity heatmap — last N days (default 90)
+  getCommitHeatmap: (groupId, days = 90) =>
+    axiosClient.get(`/stats/group/${groupId}/commits/heatmap`, { params: { days } }),
+
+  // N most recent commits (default 10)
+  getRecentCommits: (groupId, limit = 10) =>
+    axiosClient.get(`/stats/group/${groupId}/commits/recent`, { params: { limit } }),
+
+  // Commits grouped by group member email (last N days, default 30)
+  getCommitsByMember: (groupId, days = 30) =>
+    axiosClient.get(`/stats/group/${groupId}/commits/members`, { params: { days } }),
+};
+
 export const statsApi = {
   // Sprint burndown data for a group (?sprintName)
   getSprintBurndown: (groupId, sprintName) =>

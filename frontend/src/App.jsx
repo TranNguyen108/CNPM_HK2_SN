@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import GroupList from './pages/groups/GroupList';
 import GroupDetail from './pages/groups/GroupDetail';
 import LecturerList from './pages/lecturers/LecturerList';
+import GenerateSRS from './pages/leader/GenerateSRS';
 import KanbanBoard from './pages/leader/KanbanBoard';
 import LeaderDashboard from './pages/leader/LeaderDashboard';
 import LecturerDashboard from './pages/lecturer/LecturerDashboard';
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/dashboard" element={<TeamDashboardRoute />} />
             <Route path="/boards" element={<TeamDashboardRoute />} />
             <Route path="/board/:groupId" element={<KanbanBoard />} />
+            <Route path="/srs" element={<GenerateSRS />} />
           </Route>
         </Route>
 
